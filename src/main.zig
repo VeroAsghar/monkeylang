@@ -198,7 +198,6 @@ test "sample program" {
 
     var l = Lexer.init(input);
 
-
     for (test_tokens) |tt| {
         const tok = try l.nextToken();
         try std.testing.expectEqual(@enumToInt(tok), @enumToInt(tt));
