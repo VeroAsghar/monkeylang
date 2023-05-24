@@ -23,15 +23,13 @@ const Token = union(enum) {
 const Lexer = struct {
     const Self = @This();
 
-    alloc: std.mem.Allocator,
     input: []const u8,
     position: u32 = 0,
     read_position: u32 = 0,
     ch: u8 = undefined,
 
-    pub fn init(alloc: std.mem.Allocator, input: []const u8) Self {
+    pub fn init(input: []const u8) Self {
         var l = Self {
-            .alloc = alloc,
             .input = input,
         };
         readChar(&l);
@@ -59,10 +57,9 @@ const Lexer = struct {
                     return lookupIdent(literal);
                 } else if (isDigit(self.ch)) {
                     const number = self.readNumber();
-                    return .{.type=.int, .literal=number};
+                    return .{.int = number};
                 } else {
-                    const str = try std.fmt.allocPrint(self.alloc, "{u}", .{self.ch});
-                    return .{.type=.illegal, .literal=str};
+                    return .{.illegal = self.ch};
                 }
             }
         };
@@ -94,7 +91,7 @@ const Lexer = struct {
         } else if (std.mem.eql(u8, ident, "let")) {
             return .let;
         } else {
-            return .{.type=.ident, .literal=ident};
+            return .{.ident = ident};
         }
     }
 
@@ -138,10 +135,7 @@ test "simple tokens" {
         .semicolon,
         .eof,
     };
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-    var l = Lexer.init(allocator, input);
+    var l = Lexer.init(input);
 
 
     for (test_tokens) |tt| {
@@ -201,10 +195,7 @@ test "sample program" {
         .eof,
     };
 
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-    var l = Lexer.init(allocator, input);
+    var l = Lexer.init(input);
 
     for (test_tokens) |tt| {
         const tok = try l.nextToken();
