@@ -6,3 +6,6 @@ Structs:
     much easier comparison between token literals, however requires allocation
     for the illegal token literal
 
+
+
+All BS, tagged unions are fine, expectEqualDeep is necessary
