@@ -3,16 +3,11 @@ const std = @import("std");
 pub fn main() !void {
 }
 
-const Token = struct {
-    type: TokenType,
-    literal: []const u8,
-};
-
-const TokenType = enum {
-    illegal,
+const Token = union(enum) {
+    illegal: u8,
     eof,
-    ident,
-    int,
+    ident: []const u8,
+    int: []const u8,
     equ,
     plus,
     comma,
@@ -49,15 +44,15 @@ const Lexer = struct {
         self.skipWhitespace();
 
         const tok: Token = switch(self.ch) {
-            '=' => .{.type=.equ , .literal="="},
-            ';' => .{.type=.semicolon , .literal=";"},
-            '(' => .{.type=.lparen , .literal="(" },
-            ')' => .{.type=.rparen , .literal=")" },
-            ',' => .{.type=.comma , .literal="," },
-            '+' => .{.type=.plus , .literal="+" },
-            '{' => .{.type=.lbrace , .literal="{" },
-            '}' => .{.type=.rbrace , .literal="}" },
-            0 => .{.type=.eof , .literal="" },
+            '=' => .equ,
+            ';' => .semicolon,
+            '(' => .lparen,
+            ')' => .rparen,
+            ',' => .comma,
+            '+' => .plus,
+            '{' => .lbrace,
+            '}' => .rbrace,
+            0 =>  .eof,
             else => {
                 if (isLetter(self.ch)) {
                     const literal = self.readIdentifier();
@@ -95,9 +90,9 @@ const Lexer = struct {
 
     fn lookupIdent(ident: []const u8) Token {
         if (std.mem.eql(u8, ident, "fn")) {
-            return .{.type=.func, .literal=ident};
+            return .func;
         } else if (std.mem.eql(u8, ident, "let")) {
-            return .{.type=.let, .literal=ident};
+            return .let;
         } else {
             return .{.type=.ident, .literal=ident};
         }
@@ -133,15 +128,15 @@ test "simple tokens" {
     const input = "=+(){},;";
 
     const test_tokens = [_]Token {
-        .{.type=.equ , .literal="="},
-        .{.type=.plus , .literal="+"},
-        .{.type=.lparen , .literal="("},
-        .{.type=.rparen , .literal=")"},
-        .{.type=.lbrace , .literal="{"},
-        .{.type=.rbrace , .literal="}"},
-        .{.type=.comma , .literal=","},
-        .{.type=.semicolon , .literal=";"},
-        .{.type=.eof , .literal=""},
+        .equ,
+        .plus,
+        .lparen,
+        .rparen,
+        .lbrace,
+        .rbrace,
+        .comma,
+        .semicolon,
+        .eof,
     };
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -167,43 +162,43 @@ test "sample program" {
     ;
 
     const test_tokens = [_]Token {
-        .{.type=.let , .literal="let"},
-        .{.type=.ident , .literal="five"},
-        .{.type=.equ , .literal="="},
-        .{.type=.int , .literal="5"},
-        .{.type=.semicolon , .literal=";"},
-        .{.type=.let , .literal="let"},
-        .{.type=.ident , .literal="ten"},
-        .{.type=.equ , .literal="="},
-        .{.type=.int , .literal="10"},
-        .{.type=.semicolon , .literal=";"},
-        .{.type=.let , .literal="let"},
-        .{.type=.ident , .literal="add"},
-        .{.type=.equ , .literal="="},
-        .{.type=.func , .literal="fn"},
-        .{.type=.lparen , .literal="("},
-        .{.type=.ident , .literal="x"},
-        .{.type=.comma , .literal=","},
-        .{.type=.ident , .literal="y"},
-        .{.type=.rparen , .literal=")"},
-        .{.type=.lbrace , .literal="{"},
-        .{.type=.ident , .literal="x"},
-        .{.type=.plus , .literal="+"},
-        .{.type=.ident , .literal="y"},
-        .{.type=.semicolon , .literal=";"},
-        .{.type=.rbrace , .literal="}"},
-        .{.type=.semicolon , .literal=";"},
-        .{.type=.let , .literal="let"},
-        .{.type=.ident , .literal="result"},
-        .{.type=.equ , .literal="="},
-        .{.type=.ident , .literal="add"},
-        .{.type=.lparen , .literal="("},
-        .{.type=.ident , .literal="five"},
-        .{.type=.comma , .literal=","},
-        .{.type=.ident , .literal="ten"},
-        .{.type=.rparen , .literal=")"},
-        .{.type=.semicolon , .literal=";"},
-        .{.type=.eof , .literal=""},
+        .let,
+        .{.ident = "five"},
+        .equ,
+        .{.int = "5"},
+        .semicolon,
+        .let,
+        .{.ident = "ten"},
+        .equ,
+        .{.int = "10"},
+        .semicolon,
+        .let,
+        .{.ident = "add"},
+        .equ,
+        .func,
+        .lparen,
+        .{.ident = "x"},
+        .comma,
+        .{.ident = "y"},
+        .rparen,
+        .lbrace,
+        .{.ident = "x"},
+        .plus,
+        .{.ident = "y"},
+        .semicolon,
+        .rbrace,
+        .semicolon,
+        .let,
+        .{.ident = "result"},
+        .equ,
+        .{.ident = "add"},
+        .lparen,
+        .{.ident = "five"},
+        .comma,
+        .{.ident = "ten"},
+        .rparen,
+        .semicolon,
+        .eof,
     };
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -211,11 +206,9 @@ test "sample program" {
     const allocator = arena.allocator();
     var l = Lexer.init(allocator, input);
 
-
     for (test_tokens) |tt| {
         const tok = try l.nextToken();
-        try std.testing.expectEqual(tok.type, tt.type);
-        try std.testing.expect(std.mem.eql(u8, tok.literal, tt.literal));
+        try std.testing.expectEqualDeep(tok, tt);
     }
 
 }
