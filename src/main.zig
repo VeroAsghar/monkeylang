@@ -5,19 +5,19 @@ pub fn main() !void {
 
 const Token = union(enum) {
     illegal: u8,
-    eof: []const u8,
+    eof,
     ident: []const u8,
     int: []const u8,
-    equ: []const u8,
-    plus: []const u8,
-    comma: []const u8,
-    semicolon: []const u8,
-    lparen: []const u8,
-    rparen: []const u8,
-    lbrace: []const u8,
-    rbrace: []const u8,
-    func: []const u8,
-    let: []const u8,
+    equ,
+    plus,
+    comma,
+    semicolon,
+    lparen,
+    rparen,
+    lbrace,
+    rbrace,
+    func,
+    let,
 };
 
 const Lexer = struct {
@@ -41,16 +41,16 @@ const Lexer = struct {
 
         self.skipWhitespace();
 
-        const tok = switch(self.ch) {
-            '=' => Token{.equ = "="},
-            ';' => Token{.semicolon = ";"},
-            '(' => Token{.lparen = "(" },
-            ')' => Token{.rparen = ")" },
-            ',' => Token{.comma = "," },
-            '+' => Token{.plus = "+" },
-            '{' => Token{.lbrace = "{" },
-            '}' => Token{.rbrace = "}" },
-            0 => Token{ .eof = "" },
+        const tok: Token = switch(self.ch) {
+            '=' => .equ,
+            ';' => .semicolon,
+            '(' => .lparen,
+            ')' => .rparen,
+            ',' => .comma,
+            '+' => .plus,
+            '{' => .lbrace,
+            '}' => .rbrace,
+            0 =>  .eof,
             else => {
                 if (isLetter(self.ch)) {
                     const literal = self.readIdentifier();
@@ -87,9 +87,9 @@ const Lexer = struct {
 
     fn lookupIdent(ident: []const u8) Token {
         if (std.mem.eql(u8, ident, "fn")) {
-            return Token{.func = ident};
+            return .func;
         } else if (std.mem.eql(u8, ident, "let")) {
-            return Token{.let = ident};
+            return .let;
         } else {
             return Token{.ident = ident};
         }
@@ -125,15 +125,15 @@ test "simple tokens" {
     const input = "=+(){},;";
 
     const test_tokens = [_]Token {
-        .{.equ = "="},
-        .{.plus = "+"},
-        .{.lparen = "("},
-        .{.rparen = ")"},
-        .{.lbrace = "{"},
-        .{.rbrace = "}"},
-        .{.comma = ","},
-        .{.semicolon = ";"},
-        .{.eof = ""},
+        .equ,
+        .plus,
+        .lparen,
+        .rparen,
+        .lbrace,
+        .rbrace,
+        .comma,
+        .semicolon,
+        .eof,
     };
 
     var l = Lexer.init(input);
@@ -157,50 +157,50 @@ test "sample program" {
     ;
 
     const test_tokens = [_]Token {
-        .{.let = "let"},
+        .let,
         .{.ident = "five"},
-        .{.equ = "="},
+        .equ,
         .{.int = "5"},
-        .{.semicolon = ";"},
-        .{.let = "let"},
+        .semicolon,
+        .let,
         .{.ident = "ten"},
-        .{.equ = "="},
+        .equ,
         .{.int = "10"},
-        .{.semicolon = ";"},
-        .{.let = "let"},
+        .semicolon,
+        .let,
         .{.ident = "add"},
-        .{.equ = "="},
-        .{.func = "fn"},
-        .{.lparen = "("},
+        .equ,
+        .func,
+        .lparen,
         .{.ident = "x"},
-        .{.comma = ","},
+        .comma,
         .{.ident = "y"},
-        .{.rparen = ")"},
-        .{.lbrace = "{"},
+        .rparen,
+        .lbrace,
         .{.ident = "x"},
-        .{.plus = "+"},
+        .plus,
         .{.ident = "y"},
-        .{.semicolon = ";"},
-        .{.rbrace = "}"},
-        .{.semicolon = ";"},
-        .{.let = "let"},
+        .semicolon,
+        .rbrace,
+        .semicolon,
+        .let,
         .{.ident = "result"},
-        .{.equ = "="},
+        .equ,
         .{.ident = "add"},
-        .{.lparen = "("},
+        .lparen,
         .{.ident = "five"},
-        .{.comma = ","},
+        .comma,
         .{.ident = "ten"},
-        .{.rparen = ")"},
-        .{.semicolon = ";"},
-        .{.eof = ""},
+        .rparen,
+        .semicolon,
+        .eof,
     };
 
     var l = Lexer.init(input);
 
     for (test_tokens) |tt| {
         const tok = try l.nextToken();
-        try std.testing.expectEqual(@enumToInt(tok), @enumToInt(tt));
+        try std.testing.expectEqualDeep(tok, tt);
     }
 
 }
