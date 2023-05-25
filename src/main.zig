@@ -16,8 +16,21 @@ const Token = union(enum) {
     rparen,
     lbrace,
     rbrace,
-    func,
-    let,
+    FUNC,
+    LET,
+    TRUE,
+    FALSE,
+    IF,
+    ELSE,
+    RETURN,
+    e,
+    not,
+    ne,
+    dash,
+    slash,
+    star,
+    lt,
+    gt,
 };
 
 const Lexer = struct {
@@ -42,7 +55,14 @@ const Lexer = struct {
         self.skipWhitespace();
 
         const tok: Token = switch(self.ch) {
-            '=' => .equ,
+            '=' => blk: {
+                if (self.peekChar() == '=') {
+                    self.readChar();
+                    break :blk .e;
+                } else {
+                    break :blk .equ;
+                }
+            },
             ';' => .semicolon,
             '(' => .lparen,
             ')' => .rparen,
@@ -50,6 +70,19 @@ const Lexer = struct {
             '+' => .plus,
             '{' => .lbrace,
             '}' => .rbrace,
+            '-' => .dash,
+            '/' => .slash,
+            '*' => .star,
+            '!' => blk: { 
+                if (self.peekChar() == '=') {
+                    self.readChar();
+                    break :blk .ne;
+                } else {
+                    break :blk .not;
+                }
+            },
+            '<' => .lt,
+            '>' => .gt,
             0 =>  .eof,
             else => {
                 if (isLetter(self.ch)) {
@@ -66,6 +99,14 @@ const Lexer = struct {
 
         self.readChar();
         return tok;
+    }
+
+    fn peekChar(self: *Self) u8 {
+        if (self.read_position >= self.input.len) {
+          return 0;
+        } else {
+            return self.input[self.read_position];
+        }
     }
     
     fn readNumber(self: *Self) []const u8 {
@@ -87,9 +128,19 @@ const Lexer = struct {
 
     fn lookupIdent(ident: []const u8) Token {
         if (std.mem.eql(u8, ident, "fn")) {
-            return .func;
+            return .FUNC;
         } else if (std.mem.eql(u8, ident, "let")) {
-            return .let;
+            return .LET;
+        } else if (std.mem.eql(u8, ident, "true")) {
+            return .TRUE;
+        } else if (std.mem.eql(u8, ident, "false")) {
+            return .FALSE;
+        } else if (std.mem.eql(u8, ident, "if")) {
+            return .IF;
+        } else if (std.mem.eql(u8, ident, "else")) {
+            return .ELSE;
+        } else if (std.mem.eql(u8, ident, "return")) {
+            return .RETURN;
         } else {
             return .{.ident = ident};
         }
@@ -156,20 +207,20 @@ test "sample program" {
     ;
 
     const test_tokens = [_]Token {
-        .let,
+        .LET,
         .{.ident = "five"},
         .equ,
         .{.int = "5"},
         .semicolon,
-        .let,
+        .LET,
         .{.ident = "ten"},
         .equ,
         .{.int = "10"},
         .semicolon,
-        .let,
+        .LET,
         .{.ident = "add"},
         .equ,
-        .func,
+        .FUNC,
         .lparen,
         .{.ident = "x"},
         .comma,
@@ -182,7 +233,7 @@ test "sample program" {
         .semicolon,
         .rbrace,
         .semicolon,
-        .let,
+        .LET,
         .{.ident = "result"},
         .equ,
         .{.ident = "add"},
@@ -201,5 +252,76 @@ test "sample program" {
         const tok = try l.nextToken();
         try std.testing.expectEqualDeep(tok, tt);
     }
+}
 
+test "sample program 2" {
+    const input = 
+        \\let five = 5;
+        \\let ten = 10;
+        \\let add = fn(x, y) {
+        \\    x + y;
+        \\};       
+        \\let result = add(five, ten);
+        \\!-/*5;
+        \\5 < 10 > 5;
+    ;
+
+    const test_tokens = [_]Token {
+        .LET,
+        .{.ident = "five"},
+        .equ,
+        .{.int = "5"},
+        .semicolon,
+        .LET,
+        .{.ident = "ten"},
+        .equ,
+        .{.int = "10"},
+        .semicolon,
+        .LET,
+        .{.ident = "add"},
+        .equ,
+        .FUNC,
+        .lparen,
+        .{.ident = "x"},
+        .comma,
+        .{.ident = "y"},
+        .rparen,
+        .lbrace,
+        .{.ident = "x"},
+        .plus,
+        .{.ident = "y"},
+        .semicolon,
+        .rbrace,
+        .semicolon,
+        .LET,
+        .{.ident = "result"},
+        .equ,
+        .{.ident = "add"},
+        .lparen,
+        .{.ident = "five"},
+        .comma,
+        .{.ident = "ten"},
+        .rparen,
+        .semicolon,
+        .not,
+        .dash,
+        .slash,
+        .star,
+        .{.int = "5"},
+        .semicolon,
+        .{.int = "5"},
+        .lt,
+        .{.int = "10"},
+        .gt,
+        .{.int = "5"},
+        .semicolon,
+        .eof,
+    };
+
+    var l = Lexer.init(input);
+
+    for (test_tokens) |tt| {
+        const tok = try l.nextToken();
+        try std.testing.expectEqualDeep(tok, tt);
+    }
 }
