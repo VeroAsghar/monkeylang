@@ -264,6 +264,13 @@ test "sample program 2" {
         \\let result = add(five, ten);
         \\!-/*5;
         \\5 < 10 > 5;
+        \\if (5 < 10) {
+            \\return true;
+        \\} else {
+            \\return false;
+        \\}
+        \\10 == 10; 
+        \\10 != 9;
     ;
 
     const test_tokens = [_]Token {
@@ -314,6 +321,31 @@ test "sample program 2" {
         .{.int = "10"},
         .gt,
         .{.int = "5"},
+        .semicolon,
+        .IF,
+        .lparen,
+        .{.int = "5"},
+        .lt,
+        .{.int = "10"},
+        .rparen,
+        .lbrace,
+        .RETURN,
+        .TRUE,
+        .semicolon,
+        .rbrace,
+        .ELSE,
+        .lbrace,
+        .RETURN,
+        .FALSE,
+        .semicolon,
+        .rbrace,
+        .{.int = "10"},
+        .e,
+        .{.int = "10"},
+        .semicolon,
+        .{.int = "10"},
+        .ne,
+        .{.int = "9"},
         .semicolon,
         .eof,
     };
