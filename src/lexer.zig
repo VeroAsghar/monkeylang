@@ -1,10 +1,41 @@
 const std = @import("std");
 
-pub const Token = union(enum) {
+pub const Token = union(TokenType) {
     illegal: u8,
-    eof,
     ident: []const u8,
     int: []const u8,
+    eof: void,
+    equ: void,
+    plus: void,
+    comma: void,
+    semicolon: void,
+    lparen: void,
+    rparen: void,
+    lbrace: void,
+    rbrace: void,
+    FUNC: void,
+    LET: void,
+    TRUE: void,
+    FALSE: void,
+    IF: void,
+    ELSE: void,
+    RETURN: void,
+    e: void,
+    not: void,
+    ne: void,
+    dash: void,
+    slash: void,
+    star: void,
+    lt: void,
+    gt: void,
+
+};
+
+pub const TokenType = enum {
+    illegal,
+    ident,
+    int,
+    eof,
     equ,
     plus,
     comma,
@@ -28,6 +59,23 @@ pub const Token = union(enum) {
     star,
     lt,
     gt,
+
+    //pub fn format(
+    //    value: Token, 
+    //    comptime fmt: []const u8, 
+    //    options: std.fmt.FormatOptions, 
+    //    writer: anytype
+    //) !void {
+    //    _ = fmt;
+    //    _ = options;
+    //    try writer.writeAll("meaw");
+
+    //    switch (value) {
+    //        .ident => |str| try writer.print("{} {s}", .{value, str}),
+    //        .int => |num| try writer.print("{} {s}", .{value, num}),
+    //        else => try writer.print("{}", .{value}),
+    //    }
+    //}
 };
 
 const Self = @This();
