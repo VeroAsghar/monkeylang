@@ -83,6 +83,9 @@ pub fn init(alloc: Allocator, l: *Lexer) !Self {
     try p.registerPrefix(TokenType.int, parseIntegerLiteral);
     try p.registerPrefix(TokenType.not, parsePrefixExpression);
     try p.registerPrefix(TokenType.dash, parsePrefixExpression);
+    try p.registerPrefix(TokenType.TRUE, parseBoolean);
+    try p.registerPrefix(TokenType.FALSE, parseBoolean);
+    try p.registerPrefix(TokenType.lparen, parseGroupedExpression);
 
     try p.registerInfix(TokenType.star, parseInfixExpression);
     try p.registerInfix(TokenType.slash, parseInfixExpression);
@@ -292,6 +295,31 @@ fn parseInfixExpression(p: *Self, left: *ast.Expression) !?*ast.Expression {
     return expr;
 }
 
+fn parseBoolean(p: *Self) !?*ast.Expression {
+    var value: bool = undefined; 
+    if (std.mem.eql(u8, p.curToken.literal, "true")) {
+        value = true;
+    } else if (std.mem.eql(u8, p.curToken.literal, "false")) {
+        value = false;
+    } else {
+        return null;
+    }
+    var boolean = try p.alloc.create(ast.Boolean);
+    boolean.* = .{ .token = p.curToken, .value = value };
+    var expr = try p.alloc.create(ast.Expression);
+    expr.* = ast.Expression{.Bool = boolean};
+    return expr;
+}
+
+fn parseGroupedExpression(p: *Self) !?*ast.Expression {
+    p.nextToken();
+    var expr = p.parseExpression(Precedence.low);
+    if (!p.expectPeek(TokenType.rparen)) {
+        return null;
+    }
+    return expr;
+}
+
 const eql = std.mem.eql;
 const expect = std.testing.expect;
 
@@ -488,6 +516,40 @@ test "prefix expressions" {
     }
 }
 
+
+test "grouped expressions" {
+    const input =
+        \\(5 + 5) * 2;
+        \\-(5 + 5);
+        \\5 + (5 + 5) * 2;
+    ;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var l = Lexer.init(input, allocator);
+    var p = try Self.init(allocator, &l);
+
+    var program = try p.parseProgram(std.testing.allocator);
+    defer program.deinit();
+
+    const literals = [_][]const u8{ 
+        "((5 + 5) * 2)",
+        "(-(5 + 5))",
+        "(5 + ((5 + 5) * 2))",
+    };
+
+    for (literals, program.statements.items) |lit, stmt| {
+        switch (stmt.*) {
+            .Expression => |expr_stmt| {
+                try expect(eql(u8, lit, try expr_stmt.value.string(allocator)));
+            },
+            else => unreachable,
+        }
+    }
+}
+
 test "infix expressions" {
     const input =
         \\5 + 5;
@@ -531,3 +593,38 @@ test "infix expressions" {
     }
 }
 
+
+test "boolean literals" {
+    const input =
+        \\true;
+        \\false;
+        \\3 > 5 == false;
+        \\3 < 5 == true;
+    ;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var l = Lexer.init(input, allocator);
+    var p = try Self.init(allocator, &l);
+
+    var program = try p.parseProgram(std.testing.allocator);
+    defer program.deinit();
+
+    const literals = [_][]const u8{ 
+        "true",
+        "false",
+        "((3 > 5) == false)",
+        "((3 < 5) == true)",
+    };
+
+    for (literals, program.statements.items) |lit, stmt| {
+        switch (stmt.*) {
+            .Expression => |expr_stmt| {
+                try expect(eql(u8, lit, try expr_stmt.value.string(allocator)));
+            },
+            else => unreachable,
+        }
+    }
+}

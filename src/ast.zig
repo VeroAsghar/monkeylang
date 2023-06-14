@@ -25,6 +25,7 @@ pub const Expression = union(enum) {
     Int: *IntegerLiteral,
     Pre: *Prefix,
     In: *Infix,
+    Bool: *Boolean,
 
     pub fn string(self: @This(), alloc: Allocator) ![]const u8 {
         const value = switch (self) {
@@ -32,6 +33,7 @@ pub const Expression = union(enum) {
             .In => |infix| infix.string(alloc),
             .Ident => |ident| ident.token.literal,
             .Int => |int| int.token.literal,
+            .Bool => |boolean| boolean.token.literal,
         };
         return try std.fmt.allocPrint(alloc, "{!s}", .{value});
     }
@@ -93,4 +95,9 @@ pub const Infix = struct {
     pub fn string(in: @This(), alloc: Allocator) ![]const u8 {
         return try std.fmt.allocPrint(alloc, "({!s} {s} {!s})", .{ in.left.string(alloc), in.token.literal, in.right.string(alloc) });
     }
+};
+
+pub const Boolean = struct {
+    token: Token,
+    value: bool,
 };
