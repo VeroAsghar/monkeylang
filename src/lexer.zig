@@ -1,34 +1,9 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
-pub const Token = union(TokenType) {
-    illegal: u8,
-    ident: []const u8,
-    int: []const u8,
-    eof: void,
-    equ: void,
-    plus: void,
-    comma: void,
-    semicolon: void,
-    lparen: void,
-    rparen: void,
-    lbrace: void,
-    rbrace: void,
-    FUNC: void,
-    LET: void,
-    TRUE: void,
-    FALSE: void,
-    IF: void,
-    ELSE: void,
-    RETURN: void,
-    e: void,
-    not: void,
-    ne: void,
-    dash: void,
-    slash: void,
-    star: void,
-    lt: void,
-    gt: void,
-
+pub const Token = struct {
+    type: TokenType,
+    literal: []const u8,
 };
 
 pub const TokenType = enum {
@@ -59,86 +34,70 @@ pub const TokenType = enum {
     star,
     lt,
     gt,
-
-    //pub fn format(
-    //    value: Token, 
-    //    comptime fmt: []const u8, 
-    //    options: std.fmt.FormatOptions, 
-    //    writer: anytype
-    //) !void {
-    //    _ = fmt;
-    //    _ = options;
-    //    try writer.writeAll("meaw");
-
-    //    switch (value) {
-    //        .ident => |str| try writer.print("{} {s}", .{value, str}),
-    //        .int => |num| try writer.print("{} {s}", .{value, num}),
-    //        else => try writer.print("{}", .{value}),
-    //    }
-    //}
 };
 
 const Self = @This();
 
 input: []const u8,
+alloc: Allocator,
 position: u32 = 0,
 read_position: u32 = 0,
 ch: u8 = undefined,
 
-pub fn init(input: []const u8) Self {
-    var l = Self {
+pub fn init(input: []const u8, alloc: Allocator) Self {
+    var l = Self{
         .input = input,
+        .alloc = alloc,
     };
     readChar(&l);
     return l;
 }
 
-
-pub fn nextToken(self: *Self) !Token {
-
+pub fn nextToken(self: *Self) Token {
     self.skipWhitespace();
 
-    const tok: Token = switch(self.ch) {
+    const tok: Token = switch (self.ch) {
         '=' => blk: {
             if (self.peekChar() == '=') {
                 self.readChar();
-                break :blk .e;
+                break :blk .{ .type = .e, .literal = "==" };
             } else {
-                break :blk .equ;
+                break :blk .{ .type = .equ, .literal = "=" };
             }
         },
-        ';' => .semicolon,
-        '(' => .lparen,
-        ')' => .rparen,
-        ',' => .comma,
-        '+' => .plus,
-        '{' => .lbrace,
-        '}' => .rbrace,
-        '-' => .dash,
-        '/' => .slash,
-        '*' => .star,
-        '!' => blk: { 
+        ';' => .{ .type = .semicolon, .literal = ";" },
+        '(' => .{ .type = .lparen, .literal = "(" },
+        ')' => .{ .type = .rparen, .literal = ")" },
+        ',' => .{ .type = .comma, .literal = "," },
+        '+' => .{ .type = .plus, .literal = "+" },
+        '{' => .{ .type = .lbrace, .literal = "{" },
+        '}' => .{ .type = .rbrace, .literal = "}" },
+        '-' => .{ .type = .dash, .literal = "-" },
+        '/' => .{ .type = .slash, .literal = "/" },
+        '*' => .{ .type = .star, .literal = "*" },
+        '!' => blk: {
             if (self.peekChar() == '=') {
                 self.readChar();
-                break :blk .ne;
+                break :blk .{ .type = .ne, .literal = "!=" };
             } else {
-                break :blk .not;
+                break :blk .{ .type = .not, .literal = "!" };
             }
         },
-        '<' => .lt,
-        '>' => .gt,
-        0 =>  .eof,
+        '<' => .{ .type = .lt, .literal = "<" },
+        '>' => .{ .type = .gt, .literal = ">" },
+        0 => .{ .type = .eof, .literal = "" },
         else => {
             if (isLetter(self.ch)) {
                 const literal = self.readIdentifier();
                 return lookupIdent(literal);
             } else if (isDigit(self.ch)) {
                 const number = self.readNumber();
-                return .{.int = number};
+                return .{ .type = .int, .literal = number };
             } else {
-                return .{.illegal = self.ch};
+                var illegal_ch = std.fmt.allocPrint(self.alloc, "{u}", .{self.ch}) catch "format failed";
+                return .{ .type = .illegal, .literal = illegal_ch };
             }
-        }
+        },
     };
 
     self.readChar();
@@ -147,7 +106,7 @@ pub fn nextToken(self: *Self) !Token {
 
 fn peekChar(self: *Self) u8 {
     if (self.read_position >= self.input.len) {
-      return 0;
+        return 0;
     } else {
         return self.input[self.read_position];
     }
@@ -169,24 +128,23 @@ fn readIdentifier(self: *Self) []const u8 {
     return self.input[position..self.position];
 }
 
-
 fn lookupIdent(ident: []const u8) Token {
     if (std.mem.eql(u8, ident, "fn")) {
-        return .FUNC;
+        return .{ .type = .FUNC, .literal = "fn" };
     } else if (std.mem.eql(u8, ident, "let")) {
-        return .LET;
+        return .{ .type = .LET, .literal = "let" };
     } else if (std.mem.eql(u8, ident, "true")) {
-        return .TRUE;
+        return .{ .type = .TRUE, .literal = "true" };
     } else if (std.mem.eql(u8, ident, "false")) {
-        return .FALSE;
+        return .{ .type = .FALSE, .literal = "false" };
     } else if (std.mem.eql(u8, ident, "if")) {
-        return .IF;
+        return .{ .type = .IF, .literal = "if" };
     } else if (std.mem.eql(u8, ident, "else")) {
-        return .ELSE;
+        return .{ .type = .ELSE, .literal = "else" };
     } else if (std.mem.eql(u8, ident, "return")) {
-        return .RETURN;
+        return .{ .type = .RETURN, .literal = "return" };
     } else {
-        return .{.ident = ident};
+        return .{ .type = .ident, .literal = ident };
     }
 }
 
@@ -203,7 +161,6 @@ fn isDigit(ch: u8) bool {
     return '0' <= ch and ch <= '9';
 }
 
-
 fn readChar(self: *Self) void {
     if (self.read_position >= self.input.len) {
         self.ch = 0;
@@ -214,91 +171,8 @@ fn readChar(self: *Self) void {
     self.read_position += 1;
 }
 
-test "simple tokens" {
-    
-    const input = "=+(){},;";
-
-    const test_tokens = [_]Token {
-        .equ,
-        .plus,
-        .lparen,
-        .rparen,
-        .lbrace,
-        .rbrace,
-        .comma,
-        .semicolon,
-        .eof,
-    };
-    var l = Self.init(input);
-
-
-    for (test_tokens) |tt| {
-        const tok = try l.nextToken();
-        try std.testing.expectEqual(tok, tt);
-    }
-
-}
-
 test "sample program" {
-    const input = 
-        \\let five = 5;
-        \\let ten = 10;
-        \\let add = fn(x, y) {
-        \\    x + y;
-        \\};
-        \\let result = add(five, ten);
-    ;
-
-    const test_tokens = [_]Token {
-        .LET,
-        .{.ident = "five"},
-        .equ,
-        .{.int = "5"},
-        .semicolon,
-        .LET,
-        .{.ident = "ten"},
-        .equ,
-        .{.int = "10"},
-        .semicolon,
-        .LET,
-        .{.ident = "add"},
-        .equ,
-        .FUNC,
-        .lparen,
-        .{.ident = "x"},
-        .comma,
-        .{.ident = "y"},
-        .rparen,
-        .lbrace,
-        .{.ident = "x"},
-        .plus,
-        .{.ident = "y"},
-        .semicolon,
-        .rbrace,
-        .semicolon,
-        .LET,
-        .{.ident = "result"},
-        .equ,
-        .{.ident = "add"},
-        .lparen,
-        .{.ident = "five"},
-        .comma,
-        .{.ident = "ten"},
-        .rparen,
-        .semicolon,
-        .eof,
-    };
-
-    var l = Self.init(input);
-
-    for (test_tokens) |tt| {
-        const tok = try l.nextToken();
-        try std.testing.expectEqualDeep(tok, tt);
-    }
-}
-
-test "sample program 2" {
-    const input = 
+    const input =
         \\let five = 5;
         \\let ten = 10;
         \\let add = fn(x, y) {
@@ -308,95 +182,95 @@ test "sample program 2" {
         \\!-/*5;
         \\5 < 10 > 5;
         \\if (5 < 10) {
-            \\return true;
+        \\return true;
         \\} else {
-            \\return false;
+        \\return false;
         \\}
         \\10 == 10; 
         \\10 != 9;
     ;
 
-    const test_tokens = [_]Token {
-        .LET,
-        .{.ident = "five"},
-        .equ,
-        .{.int = "5"},
-        .semicolon,
-        .LET,
-        .{.ident = "ten"},
-        .equ,
-        .{.int = "10"},
-        .semicolon,
-        .LET,
-        .{.ident = "add"},
-        .equ,
-        .FUNC,
-        .lparen,
-        .{.ident = "x"},
-        .comma,
-        .{.ident = "y"},
-        .rparen,
-        .lbrace,
-        .{.ident = "x"},
-        .plus,
-        .{.ident = "y"},
-        .semicolon,
-        .rbrace,
-        .semicolon,
-        .LET,
-        .{.ident = "result"},
-        .equ,
-        .{.ident = "add"},
-        .lparen,
-        .{.ident = "five"},
-        .comma,
-        .{.ident = "ten"},
-        .rparen,
-        .semicolon,
-        .not,
-        .dash,
-        .slash,
-        .star,
-        .{.int = "5"},
-        .semicolon,
-        .{.int = "5"},
-        .lt,
-        .{.int = "10"},
-        .gt,
-        .{.int = "5"},
-        .semicolon,
-        .IF,
-        .lparen,
-        .{.int = "5"},
-        .lt,
-        .{.int = "10"},
-        .rparen,
-        .lbrace,
-        .RETURN,
-        .TRUE,
-        .semicolon,
-        .rbrace,
-        .ELSE,
-        .lbrace,
-        .RETURN,
-        .FALSE,
-        .semicolon,
-        .rbrace,
-        .{.int = "10"},
-        .e,
-        .{.int = "10"},
-        .semicolon,
-        .{.int = "10"},
-        .ne,
-        .{.int = "9"},
-        .semicolon,
-        .eof,
+    const test_tokens = [_]Token{
+        .{ .type = .LET, .literal = "let" },
+        .{ .type = .ident, .literal = "five" },
+        .{ .type = .equ, .literal = "=" },
+        .{ .type = .int, .literal = "5" },
+        .{ .type = .semicolon, .literal = ";" },
+        .{ .type = .LET, .literal = "let" },
+        .{ .type = .ident, .literal = "ten" },
+        .{ .type = .equ, .literal = "=" },
+        .{ .type = .int, .literal = "10" },
+        .{ .type = .semicolon, .literal = ";" },
+        .{ .type = .LET, .literal = "let" },
+        .{ .type = .ident, .literal = "add" },
+        .{ .type = .equ, .literal = "=" },
+        .{ .type = .FUNC, .literal = "fn" },
+        .{ .type = .lparen, .literal = "(" },
+        .{ .type = .ident, .literal = "x" },
+        .{ .type = .comma, .literal = "," },
+        .{ .type = .ident, .literal = "y" },
+        .{ .type = .rparen, .literal = ")" },
+        .{ .type = .lbrace, .literal = "{" },
+        .{ .type = .ident, .literal = "x" },
+        .{ .type = .plus, .literal = "+" },
+        .{ .type = .ident, .literal = "y" },
+        .{ .type = .semicolon, .literal = ";" },
+        .{ .type = .rbrace, .literal = "}" },
+        .{ .type = .semicolon, .literal = ";" },
+        .{ .type = .LET, .literal = "let" },
+        .{ .type = .ident, .literal = "result" },
+        .{ .type = .equ, .literal = "=" },
+        .{ .type = .ident, .literal = "add" },
+        .{ .type = .lparen, .literal = "(" },
+        .{ .type = .ident, .literal = "five" },
+        .{ .type = .comma, .literal = "," },
+        .{ .type = .ident, .literal = "ten" },
+        .{ .type = .rparen, .literal = ")" },
+        .{ .type = .semicolon, .literal = ";" },
+        .{ .type = .not, .literal = "!" },
+        .{ .type = .dash, .literal = "-" },
+        .{ .type = .slash, .literal = "/" },
+        .{ .type = .star, .literal = "*" },
+        .{ .type = .int, .literal = "5" },
+        .{ .type = .semicolon, .literal = ";" },
+        .{ .type = .int, .literal = "5" },
+        .{ .type = .lt, .literal = "<" },
+        .{ .type = .int, .literal = "10" },
+        .{ .type = .gt, .literal = ">" },
+        .{ .type = .int, .literal = "5" },
+        .{ .type = .semicolon, .literal = ";" },
+        .{ .type = .IF, .literal = "if" },
+        .{ .type = .lparen, .literal = "(" },
+        .{ .type = .int, .literal = "5" },
+        .{ .type = .lt, .literal = "<" },
+        .{ .type = .int, .literal = "10" },
+        .{ .type = .rparen, .literal = ")" },
+        .{ .type = .lbrace, .literal = "{" },
+        .{ .type = .RETURN, .literal = "return" },
+        .{ .type = .TRUE, .literal = "true" },
+        .{ .type = .semicolon, .literal = ";" },
+        .{ .type = .rbrace, .literal = "}" },
+        .{ .type = .ELSE, .literal = "else" },
+        .{ .type = .lbrace, .literal = "{" },
+        .{ .type = .RETURN, .literal = "return" },
+        .{ .type = .FALSE, .literal = "false" },
+        .{ .type = .semicolon, .literal = ";" },
+        .{ .type = .rbrace, .literal = "}" },
+        .{ .type = .int, .literal = "10" },
+        .{ .type = .e, .literal = "==" },
+        .{ .type = .int, .literal = "10" },
+        .{ .type = .semicolon, .literal = ";" },
+        .{ .type = .int, .literal = "10" },
+        .{ .type = .ne, .literal = "!=" },
+        .{ .type = .int, .literal = "9" },
+        .{ .type = .semicolon, .literal = ";" },
+        .{ .type = .eof, .literal = "" },
     };
 
-    var l = Self.init(input);
+    var l = Self.init(input, std.testing.allocator);
 
     for (test_tokens) |tt| {
-        const tok = try l.nextToken();
+        const tok = l.nextToken();
         try std.testing.expectEqualDeep(tok, tt);
     }
 }
