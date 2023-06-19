@@ -32,11 +32,8 @@ pub fn main() !void {
 }
 
 const Self = @This();
-const AllocationError = error{
-    OutOfMemory,
-};
-const PrefixParseFnType = *const fn (*Self) AllocationError!?*ast.Expression;
-const InfixParseFnType = *const fn (*Self, *ast.Expression) AllocationError!?*ast.Expression;
+const PrefixParseFnType = *const fn (*Self) ParseError!?ast.Expression;
+const InfixParseFnType = *const fn (*Self, ast.Expression) ParseError!?ast.Expression;
 
 alloc: Allocator,
 l: *Lexer,
@@ -140,7 +137,9 @@ fn parseStatement(p: *Self) !*ast.Statement {
 }
 
 const ParseError = error{
+    OutOfMemory,
     IncorrectToken,
+    MissingToken,
 };
 
 fn parseLetStatement(p: *Self) !ast.LetStatement {
@@ -157,7 +156,7 @@ fn parseLetStatement(p: *Self) !ast.LetStatement {
         return ParseError.IncorrectToken;
     }
     p.nextToken();
-    statement.value = try p.parseExpression(Precedence.low);
+    statement.value = (try p.parseExpression(Precedence.low)).?;
 
     if (p.peekTokenIs(TokenType.semicolon)) {
         p.nextToken();
@@ -168,18 +167,9 @@ fn parseLetStatement(p: *Self) !ast.LetStatement {
 
 fn parseReturnStatement(p: *Self) !ast.ReturnStatement {
     var statement = ast.ReturnStatement{ .token = p.curToken };
+
     p.nextToken();
-
-    while (!p.curTokenIs(TokenType.semicolon)) {
-        p.nextToken();
-    }
-
-    return statement;
-}
-
-fn parseExpressionStatement(p: *Self) !ast.ExpressionStatement {
-    var statement = ast.ExpressionStatement{ .token = p.curToken };
-    statement.value = try p.parseExpression(Precedence.low);
+    statement.value = (try p.parseExpression(Precedence.low)).?;
 
     if (p.peekTokenIs(TokenType.semicolon)) {
         p.nextToken();
@@ -188,8 +178,19 @@ fn parseExpressionStatement(p: *Self) !ast.ExpressionStatement {
     return statement;
 }
 
-fn parseExpression(p: *Self, prec: Precedence) !*ast.Expression {
-    var leftExpr: *ast.Expression = undefined;
+fn parseExpressionStatement(p: *Self) !ast.ExpressionStatement {
+    var statement = ast.ExpressionStatement{ .token = p.curToken };
+    statement.value = (try p.parseExpression(Precedence.low)).?;
+
+    if (p.peekTokenIs(TokenType.semicolon)) {
+        p.nextToken();
+    }
+
+    return statement;
+}
+
+fn parseExpression(p: *Self, prec: Precedence) !?ast.Expression {
+    var leftExpr: ?ast.Expression = null;
     if (p.prefixParseFns.get(p.curToken.type)) |prefixFn| {
         if (try prefixFn(p)) |expr| {
             leftExpr = expr;
@@ -198,7 +199,7 @@ fn parseExpression(p: *Self, prec: Precedence) !*ast.Expression {
     while (!p.peekTokenIs(TokenType.semicolon) and @enumToInt(prec) < @enumToInt(p.peekPrecedence())) {
         if (p.infixParseFns.get(p.peekToken.type)) |infixFn| {
             p.nextToken();
-            if (try infixFn(p, leftExpr)) |expr| {
+            if (try infixFn(p, leftExpr.?)) |expr| {
                 leftExpr = expr;
             }
         }
@@ -229,40 +230,34 @@ pub fn parseProgram(p: *Self, alloc: Allocator) !ast.Program {
     var program = ast.Program.init(alloc);
 
     while (p.curToken.type != TokenType.eof) : (p.nextToken()) {
-        if (p.parseStatement()) |statement| {
-            try program.statements.append(statement);
-        } else |err| {
-            std.log.err("{s}, {}", .{p.curToken.literal, err});
-        }
+        var statement = try p.parseStatement();
+        try program.statements.append(statement);
     }
 
     return program;
 }
 
-fn parseIdentifier(p: *Self) !?*ast.Expression {
+fn parseIdentifier(p: *Self) !?ast.Expression {
     var ident = try p.alloc.create(ast.Identifier);
     ident.* = .{ .token = p.curToken };
-    var expr = try p.alloc.create(ast.Expression);
-    expr.* = ast.Expression{.Ident = ident};
+    var expr = ast.Expression{.Ident = ident};
     return expr;
 }
 
-fn parseIntegerLiteral(p: *Self) !?*ast.Expression {
+fn parseIntegerLiteral(p: *Self) !?ast.Expression {
     var num = std.fmt.parseInt(i64, p.curToken.literal, 10) catch return null;
     var int = try p.alloc.create(ast.IntegerLiteral);
     int.* = .{ .token = p.curToken, .value = num };
-    var expr = try p.alloc.create(ast.Expression);
-    expr.* = ast.Expression{.Int = int};
+    var expr = ast.Expression{.Int = int};
     return expr;
 }
 
-fn parsePrefixExpression(p: *Self) !?*ast.Expression {
+fn parsePrefixExpression(p: *Self) !?ast.Expression {
     var pre = try p.alloc.create(ast.Prefix);
     pre.* = .{.token = p.curToken};
     p.nextToken();
-    pre.right = try p.parseExpression(Precedence.pre);
-    var expr = try p.alloc.create(ast.Expression);
-    expr.* = ast.Expression{.Pre = pre};
+    pre.right = (try p.parseExpression(Precedence.pre)).?;
+    var expr = ast.Expression{.Pre = pre};
     return expr;
 }
 
@@ -282,20 +277,23 @@ fn peekPrecedence(p: *Self) Precedence {
     }
 }
 
-fn parseInfixExpression(p: *Self, left: *ast.Expression) !?*ast.Expression {
+fn parseInfixExpression(p: *Self, left: ast.Expression) !?ast.Expression {
     var in = try p.alloc.create(ast.Infix);
     in.* = .{.token = p.curToken, .left = left};
 
     const precedence = p.curPrecedence();
     p.nextToken();
-    in.right = try p.parseExpression(precedence);
+    if (try p.parseExpression(precedence)) |expr| {
+        in.right = expr;
+    } else {
+        return ParseError.MissingToken;
+    }
 
-    var expr = try p.alloc.create(ast.Expression);
-    expr.* = ast.Expression{.In = in};
+    var expr = ast.Expression{.In = in};
     return expr;
 }
 
-fn parseBoolean(p: *Self) !?*ast.Expression {
+fn parseBoolean(p: *Self) !?ast.Expression {
     var value: bool = undefined; 
     if (std.mem.eql(u8, p.curToken.literal, "true")) {
         value = true;
@@ -306,14 +304,13 @@ fn parseBoolean(p: *Self) !?*ast.Expression {
     }
     var boolean = try p.alloc.create(ast.Boolean);
     boolean.* = .{ .token = p.curToken, .value = value };
-    var expr = try p.alloc.create(ast.Expression);
-    expr.* = ast.Expression{.Bool = boolean};
+    var expr = ast.Expression{.Bool = boolean};
     return expr;
 }
 
-fn parseGroupedExpression(p: *Self) !?*ast.Expression {
+fn parseGroupedExpression(p: *Self) !?ast.Expression {
     p.nextToken();
-    var expr = p.parseExpression(Precedence.low);
+    var expr = (try p.parseExpression(Precedence.low)).?;
     if (!p.expectPeek(TokenType.rparen)) {
         return null;
     }
@@ -322,6 +319,23 @@ fn parseGroupedExpression(p: *Self) !?*ast.Expression {
 
 const eql = std.mem.eql;
 const expect = std.testing.expect;
+
+fn testStatement(allocator: Allocator, str: []const u8, stmt: *ast.Statement) !void {
+        switch (stmt.*) {
+            .Expression => |expr_stmt| {
+                try expect(eql(u8, str, try expr_stmt.string(allocator)));
+            },
+            .Let => |let_stmt| {
+                try expect(eql(u8, str, try let_stmt.string(allocator)));
+            },
+            .Return => |return_stmt| {
+                try expect(eql(u8, str, try return_stmt.string(allocator)));
+            },
+            .Block => |block_stmt| {
+                try expect(eql(u8, str, try block_stmt.string(allocator)));
+            },
+        }
+}
 
 test "let statements" {
     const input =
@@ -339,34 +353,14 @@ test "let statements" {
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
 
-    const lets = [_][]const u8{
-        "let",
-        "let",
-        "let",
-    };
-    const idents = [_][]const u8{
-        "x",
-        "y",
-        "foobar",
-    };
-    const ints = [_]i64 {
-        5,
-        10,
-        838383,
+    const literals = [_][]const u8 {
+        "let x = 5;",
+        "let y = 10;",
+        "let foobar = 838383;",
     };
 
-    for (idents, lets, ints, 0..) |ident, let, int, i| {
-        switch (program.statements.items[i].*) {
-            .Let => |let_stmt| {
-                try expect(eql(u8, let, let_stmt.token.literal));
-                try expect(eql(u8, ident, let_stmt.name.token.literal));
-                switch (let_stmt.value.*) {
-                    .Int => |int_literal| try expect(int == int_literal.value),
-                    else => unreachable
-                }
-            },
-            else => unreachable,
-        }
+    for (literals, program.statements.items) |lit, stmt| {
+        try testStatement(p.alloc, lit, stmt);
     }
 }
 
@@ -386,20 +380,15 @@ test "return statements" {
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
 
-    const test_tokens = [_]Token{
-        .{ .type = .RETURN, .literal = "return" },
-        .{ .type = .RETURN, .literal = "return" },
-        .{ .type = .RETURN, .literal = "return" },
+
+    const literals = [_][]const u8 {
+        "return 5;",
+        "return 10;",
+        "return 993322;",
     };
 
-    for (test_tokens, 0..) |tt, i| {
-        var stmt = program.statements.items[i].*;
-        switch (stmt) {
-            .Return => |return_stmt| {
-                try std.testing.expectEqualDeep(return_stmt.token, tt);
-            },
-            else => unreachable,
-        }
+    for (literals, program.statements.items) |lit, stmt| {
+        try testStatement(p.alloc, lit, stmt);
     }
 }
 
@@ -420,25 +409,14 @@ test "identifier expressions" {
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
 
-    const test_tokens = [_]ast.Identifier{
-        .{ .token = Token{ .type = .ident, .literal = "foo" } },
-        .{ .token = Token{ .type = .ident, .literal = "bar" } },
-        .{ .token = Token{ .type = .ident, .literal = "foobar" } },
+    const literals = [_][]const u8 {
+        "foo",
+        "bar",
+        "foobar",
     };
 
-    for (test_tokens, 0..) |tt, i| {
-        var stmt = program.statements.items[i].*;
-        switch (stmt) {
-            .Expression => |expr_stmt| {
-                switch (expr_stmt.value.*) {
-                    .Ident => |ident| {
-                        try std.testing.expectEqualDeep(ident.token, tt.token);
-                    },
-                    else => unreachable,
-                }
-            },
-            else => unreachable,
-        }
+    for (literals, program.statements.items) |lit, stmt| {
+        try testStatement(p.alloc, lit, stmt);
     }
 }
 
@@ -459,22 +437,14 @@ test "integer literals" {
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
 
-    const test_tokens = [_]ast.IntegerLiteral{ .{ .token = Token{ .type = .int, .literal = "5" }, .value = 5 }, .{ .token = Token{ .type = .int, .literal = "123" }, .value = 123 }, .{ .token = Token{ .type = .int, .literal = "8934938" }, .value = 8934938 } };
+    const literals = [_][]const u8 {
+        "5",
+        "123",
+        "8934938",
+    };
 
-    for (test_tokens, 0..) |tt, i| {
-        var stmt = program.statements.items[i].*;
-        switch (stmt) {
-            .Expression => |expr_stmt| {
-                switch (expr_stmt.value.*) {
-                    .Int => |int| {
-                        try std.testing.expectEqualDeep(int.token, tt.token);
-                        try std.testing.expectEqualDeep(int.value, tt.value);
-                    },
-                    else => unreachable,
-                }
-            },
-            else => unreachable,
-        }
+    for (literals, program.statements.items) |lit, stmt| {
+        try testStatement(p.alloc, lit, stmt);
     }
 }
 
@@ -500,19 +470,8 @@ test "prefix expressions" {
         "(!foobar)",
     };
 
-    for (literals, 0..) |lit, i| {
-        var stmt = program.statements.items[i].*;
-        switch (stmt) {
-            .Expression => |expr_stmt| {
-                switch (expr_stmt.value.*) {
-                    .Pre => |pre| {
-                        try expect(eql(u8, lit, try pre.string(allocator)));
-                    },
-                    else => unreachable,
-                }
-            },
-            else => unreachable,
-        }
+    for (literals, program.statements.items) |lit, stmt| {
+        try testStatement(p.alloc, lit, stmt);
     }
 }
 
@@ -541,12 +500,7 @@ test "grouped expressions" {
     };
 
     for (literals, program.statements.items) |lit, stmt| {
-        switch (stmt.*) {
-            .Expression => |expr_stmt| {
-                try expect(eql(u8, lit, try expr_stmt.value.string(allocator)));
-            },
-            else => unreachable,
-        }
+        try testStatement(p.alloc, lit, stmt);
     }
 }
 
@@ -584,12 +538,7 @@ test "infix expressions" {
     };
 
     for (literals, program.statements.items) |lit, stmt| {
-        switch (stmt.*) {
-            .Expression => |expr_stmt| {
-                try expect(eql(u8, lit, try expr_stmt.value.string(allocator)));
-            },
-            else => unreachable,
-        }
+        try testStatement(p.alloc, lit, stmt);
     }
 }
 
@@ -619,12 +568,97 @@ test "boolean literals" {
         "((3 < 5) == true)",
     };
 
+    
     for (literals, program.statements.items) |lit, stmt| {
-        switch (stmt.*) {
-            .Expression => |expr_stmt| {
-                try expect(eql(u8, lit, try expr_stmt.value.string(allocator)));
-            },
-            else => unreachable,
-        }
+        try testStatement(p.alloc, lit, stmt);
     }
+
+}
+
+test "if expressions" {
+    const input =
+        \\let var = if (x < 5) {
+        \\  return x;
+        \\};
+    ;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var l = Lexer.init(input, allocator);
+    var p = try Self.init(allocator, &l);
+
+    var program = try p.parseProgram(std.testing.allocator);
+    defer program.deinit();
+
+    const literals = [_][]const u8 {
+        \\let var = if (x < 5) {
+        \\  return x;
+        \\};
+    ,
+    };
+
+    
+    for (literals, program.statements.items) |lit, stmt| {
+        try testStatement(p.alloc, lit, stmt);
+    }
+
+}
+
+test "if/else expressions" {
+    const input =
+        \\let var = if (x < 5) {
+        \\  return x;
+        \\} else {
+        \\  return 5;
+        \\};
+    ;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var l = Lexer.init(input, allocator);
+    var p = try Self.init(allocator, &l);
+
+    var program = try p.parseProgram(std.testing.allocator);
+    defer program.deinit();
+
+    const literals = [_][]const u8 {
+        \\let var = if (x < 5) {
+        \\  return x;
+        \\} else {
+        \\  return 5;
+        \\};
+    ,
+    };
+
+    
+    for (literals, program.statements.items) |lit, stmt| {
+        try testStatement(p.alloc, lit, stmt);
+    }
+
+}
+
+test "bad expressions" {
+    const input =
+        \\5 * ;
+    ;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var l = Lexer.init(input, allocator);
+    var p = try Self.init(allocator, &l);
+
+    var program = p.parseProgram(std.testing.allocator) catch |err| {
+        try expect(err == ParseError.MissingToken);
+        return;
+    };
+
+    defer program.deinit();
+
+
 }

@@ -26,6 +26,7 @@ pub const Expression = union(enum) {
     Pre: *Prefix,
     In: *Infix,
     Bool: *Boolean,
+    If: *If,
 
     pub fn string(self: @This(), alloc: Allocator) ![]const u8 {
         const value = switch (self) {
@@ -34,6 +35,7 @@ pub const Expression = union(enum) {
             .Ident => |ident| ident.token.literal,
             .Int => |int| int.token.literal,
             .Bool => |boolean| boolean.token.literal,
+            .If => |if_expr| if_expr.string(alloc),
         };
         return try std.fmt.allocPrint(alloc, "{!s}", .{value});
     }
@@ -42,30 +44,39 @@ pub const Statement = union(enum) {
     Let: LetStatement,
     Return: ReturnStatement,
     Expression: ExpressionStatement,
+    Block: BlockStatement,
 };
 
 pub const LetStatement = struct {
     token: Token,
     name: *Identifier = undefined,
-    value: *Expression = undefined,
+    value: Expression = undefined,
     pub fn string(self: @This(), alloc: Allocator) ![]const u8 {
-        return try std.fmt.allocPrint(alloc, "{s} {s} = {!s};\n", .{ self.token.literal, self.name.token.literal, self.value.string(alloc) });
+        return try std.fmt.allocPrint(alloc, "{s} {s} = {!s};", .{ self.token.literal, self.name.token.literal, self.value.string(alloc) });
     }
 };
 
 pub const ReturnStatement = struct {
     token: Token,
-    value: *Expression = undefined,
+    value: Expression = undefined,
     pub fn string(self: @This(), alloc: Allocator) ![]const u8 {
-        return try std.fmt.allocPrint(alloc, "{s} {!s};\n", .{ self.token.literal, self.value.string(alloc) });
+        return try std.fmt.allocPrint(alloc, "{s} {!s};", .{ self.token.literal, self.value.string(alloc) });
     }
 };
 
 pub const ExpressionStatement = struct {
     token: Token,
-    value: *Expression = undefined,
+    value: Expression = undefined,
     pub fn string(self: @This(), alloc: Allocator) ![]const u8 {
         return try std.fmt.allocPrint(alloc, "{!s}", .{self.value.string(alloc)});
+    }
+};
+
+pub const BlockStatement = struct {
+    token: Token,
+    statements: std.ArrayList(*Statement),
+    pub fn string(self: @This(), alloc: Allocator) ![]const u8 {
+        return try std.fmt.allocPrint(alloc, "{}", .{self.statements});
     }
 };
 
@@ -80,7 +91,7 @@ pub const IntegerLiteral = struct {
 
 pub const Prefix = struct {
     token: Token,
-    right: *Expression = undefined,
+    right: Expression = undefined,
 
     pub fn string(pre: @This(), alloc: Allocator) ![]const u8 {
         return try std.fmt.allocPrint(alloc, "({s}{!s})", .{ pre.token.literal, pre.right.string(alloc) });
@@ -89,8 +100,8 @@ pub const Prefix = struct {
 
 pub const Infix = struct {
     token: Token,
-    left: *Expression,
-    right: *Expression = undefined,
+    left: Expression,
+    right: Expression = undefined,
 
     pub fn string(in: @This(), alloc: Allocator) ![]const u8 {
         return try std.fmt.allocPrint(alloc, "({!s} {s} {!s})", .{ in.left.string(alloc), in.token.literal, in.right.string(alloc) });
@@ -100,4 +111,38 @@ pub const Infix = struct {
 pub const Boolean = struct {
     token: Token,
     value: bool,
+};
+
+pub const If = struct {
+    token: Token,
+    cond: *Expression,
+    con: *BlockStatement,
+    alt: ?*BlockStatement,
+
+    pub fn string(if_expr: @This(), alloc: Allocator) ![]const u8 {
+        if (if_expr.alt) |alt| {
+            return try std.fmt.allocPrint(
+            alloc, 
+            "if ({!s}) {u}\n  {!s};\n{u} else {u}\n  {!s};\n{u};", 
+            .{ 
+                if_expr.cond.string(alloc), 
+                '{',
+                if_expr.con.string(alloc), 
+                '}',
+                '{',
+                alt.string(alloc),
+                '}',
+            });
+        } else {
+            return try std.fmt.allocPrint(
+            alloc, 
+            "if ({!s}) {u}\n  {!s};\n{u};", 
+            .{ 
+                if_expr.cond.string(alloc), 
+                '{',
+                if_expr.con.string(alloc),
+                '}',
+            });
+        }
+    }
 };
