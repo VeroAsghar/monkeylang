@@ -1,9 +1,13 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 
 pub const Token = struct {
     type: TokenType,
+    payload: Payload,
+};
+
+pub const Payload = union(enum) {
     literal: []const u8,
+    illegal: u8,
 };
 
 pub const TokenType = enum {
@@ -39,15 +43,13 @@ pub const TokenType = enum {
 const Self = @This();
 
 input: []const u8,
-alloc: Allocator,
 position: u32 = 0,
 read_position: u32 = 0,
 ch: u8 = undefined,
 
-pub fn init(input: []const u8, alloc: Allocator) Self {
+pub fn init(input: []const u8) Self {
     var l = Self{
         .input = input,
-        .alloc = alloc,
     };
     readChar(&l);
     return l;
@@ -60,42 +62,41 @@ pub fn nextToken(self: *Self) Token {
         '=' => blk: {
             if (self.peekChar() == '=') {
                 self.readChar();
-                break :blk .{ .type = .e, .literal = "==" };
+                break :blk .{ .type = .e, .payload = .{ .literal = "==" } };
             } else {
-                break :blk .{ .type = .equ, .literal = "=" };
+                break :blk .{ .type = .equ, .payload = .{ .literal = "=" } };
             }
         },
-        ';' => .{ .type = .semicolon, .literal = ";" },
-        '(' => .{ .type = .lparen, .literal = "(" },
-        ')' => .{ .type = .rparen, .literal = ")" },
-        ',' => .{ .type = .comma, .literal = "," },
-        '+' => .{ .type = .plus, .literal = "+" },
-        '{' => .{ .type = .lbrace, .literal = "{" },
-        '}' => .{ .type = .rbrace, .literal = "}" },
-        '-' => .{ .type = .dash, .literal = "-" },
-        '/' => .{ .type = .slash, .literal = "/" },
-        '*' => .{ .type = .star, .literal = "*" },
+        ';' => .{ .type = .semicolon, .payload = .{ .literal = ";" } },
+        '(' => .{ .type = .lparen, .payload = .{ .literal = "(" } },
+        ')' => .{ .type = .rparen, .payload = .{ .literal = ")" } },
+        ',' => .{ .type = .comma, .payload = .{ .literal = "," } },
+        '+' => .{ .type = .plus, .payload = .{ .literal = "+" } },
+        '{' => .{ .type = .lbrace, .payload = .{ .literal = "{" } },
+        '}' => .{ .type = .rbrace, .payload = .{ .literal = "}" } },
+        '-' => .{ .type = .dash, .payload = .{ .literal = "-" } },
+        '/' => .{ .type = .slash, .payload = .{ .literal = "/" } },
+        '*' => .{ .type = .star, .payload = .{ .literal = "*" } },
         '!' => blk: {
             if (self.peekChar() == '=') {
                 self.readChar();
-                break :blk .{ .type = .ne, .literal = "!=" };
+                break :blk .{ .type = .ne, .payload = .{ .literal = "!=" } };
             } else {
-                break :blk .{ .type = .not, .literal = "!" };
+                break :blk .{ .type = .not, .payload = .{ .literal = "!" } };
             }
         },
-        '<' => .{ .type = .lt, .literal = "<" },
-        '>' => .{ .type = .gt, .literal = ">" },
-        0 => .{ .type = .eof, .literal = "" },
+        '<' => .{ .type = .lt, .payload = .{ .literal = "<" } },
+        '>' => .{ .type = .gt, .payload = .{ .literal = ">" } },
+        0 => .{ .type = .eof, .payload = .{ .literal = "" } },
         else => {
             if (isLetter(self.ch)) {
                 const literal = self.readIdentifier();
                 return lookupIdent(literal);
             } else if (isDigit(self.ch)) {
                 const number = self.readNumber();
-                return .{ .type = .int, .literal = number };
+                return .{ .type = .int, .payload = .{ .literal = number } };
             } else {
-                var illegal_ch = std.fmt.allocPrint(self.alloc, "{u}", .{self.ch}) catch "format failed";
-                return .{ .type = .illegal, .literal = illegal_ch };
+                return .{ .type = .illegal, .payload = .{ .illegal = self.ch } };
             }
         },
     };
@@ -130,21 +131,21 @@ fn readIdentifier(self: *Self) []const u8 {
 
 fn lookupIdent(ident: []const u8) Token {
     if (std.mem.eql(u8, ident, "fn")) {
-        return .{ .type = .FUNC, .literal = "fn" };
+        return .{ .type = .FUNC, .payload = .{ .literal = "fn" } };
     } else if (std.mem.eql(u8, ident, "let")) {
-        return .{ .type = .LET, .literal = "let" };
+        return .{ .type = .LET, .payload = .{ .literal = "let" } };
     } else if (std.mem.eql(u8, ident, "true")) {
-        return .{ .type = .TRUE, .literal = "true" };
+        return .{ .type = .TRUE, .payload = .{ .literal = "true" } };
     } else if (std.mem.eql(u8, ident, "false")) {
-        return .{ .type = .FALSE, .literal = "false" };
+        return .{ .type = .FALSE, .payload = .{ .literal = "false" } };
     } else if (std.mem.eql(u8, ident, "if")) {
-        return .{ .type = .IF, .literal = "if" };
+        return .{ .type = .IF, .payload = .{ .literal = "if" } };
     } else if (std.mem.eql(u8, ident, "else")) {
-        return .{ .type = .ELSE, .literal = "else" };
+        return .{ .type = .ELSE, .payload = .{ .literal = "else" } };
     } else if (std.mem.eql(u8, ident, "return")) {
-        return .{ .type = .RETURN, .literal = "return" };
+        return .{ .type = .RETURN, .payload = .{ .literal = "return" } };
     } else {
-        return .{ .type = .ident, .literal = ident };
+        return .{ .type = .ident, .payload = .{ .literal = ident } };
     }
 }
 
@@ -191,83 +192,83 @@ test "sample program" {
     ;
 
     const test_tokens = [_]Token{
-        .{ .type = .LET, .literal = "let" },
-        .{ .type = .ident, .literal = "five" },
-        .{ .type = .equ, .literal = "=" },
-        .{ .type = .int, .literal = "5" },
-        .{ .type = .semicolon, .literal = ";" },
-        .{ .type = .LET, .literal = "let" },
-        .{ .type = .ident, .literal = "ten" },
-        .{ .type = .equ, .literal = "=" },
-        .{ .type = .int, .literal = "10" },
-        .{ .type = .semicolon, .literal = ";" },
-        .{ .type = .LET, .literal = "let" },
-        .{ .type = .ident, .literal = "add" },
-        .{ .type = .equ, .literal = "=" },
-        .{ .type = .FUNC, .literal = "fn" },
-        .{ .type = .lparen, .literal = "(" },
-        .{ .type = .ident, .literal = "x" },
-        .{ .type = .comma, .literal = "," },
-        .{ .type = .ident, .literal = "y" },
-        .{ .type = .rparen, .literal = ")" },
-        .{ .type = .lbrace, .literal = "{" },
-        .{ .type = .ident, .literal = "x" },
-        .{ .type = .plus, .literal = "+" },
-        .{ .type = .ident, .literal = "y" },
-        .{ .type = .semicolon, .literal = ";" },
-        .{ .type = .rbrace, .literal = "}" },
-        .{ .type = .semicolon, .literal = ";" },
-        .{ .type = .LET, .literal = "let" },
-        .{ .type = .ident, .literal = "result" },
-        .{ .type = .equ, .literal = "=" },
-        .{ .type = .ident, .literal = "add" },
-        .{ .type = .lparen, .literal = "(" },
-        .{ .type = .ident, .literal = "five" },
-        .{ .type = .comma, .literal = "," },
-        .{ .type = .ident, .literal = "ten" },
-        .{ .type = .rparen, .literal = ")" },
-        .{ .type = .semicolon, .literal = ";" },
-        .{ .type = .not, .literal = "!" },
-        .{ .type = .dash, .literal = "-" },
-        .{ .type = .slash, .literal = "/" },
-        .{ .type = .star, .literal = "*" },
-        .{ .type = .int, .literal = "5" },
-        .{ .type = .semicolon, .literal = ";" },
-        .{ .type = .int, .literal = "5" },
-        .{ .type = .lt, .literal = "<" },
-        .{ .type = .int, .literal = "10" },
-        .{ .type = .gt, .literal = ">" },
-        .{ .type = .int, .literal = "5" },
-        .{ .type = .semicolon, .literal = ";" },
-        .{ .type = .IF, .literal = "if" },
-        .{ .type = .lparen, .literal = "(" },
-        .{ .type = .int, .literal = "5" },
-        .{ .type = .lt, .literal = "<" },
-        .{ .type = .int, .literal = "10" },
-        .{ .type = .rparen, .literal = ")" },
-        .{ .type = .lbrace, .literal = "{" },
-        .{ .type = .RETURN, .literal = "return" },
-        .{ .type = .TRUE, .literal = "true" },
-        .{ .type = .semicolon, .literal = ";" },
-        .{ .type = .rbrace, .literal = "}" },
-        .{ .type = .ELSE, .literal = "else" },
-        .{ .type = .lbrace, .literal = "{" },
-        .{ .type = .RETURN, .literal = "return" },
-        .{ .type = .FALSE, .literal = "false" },
-        .{ .type = .semicolon, .literal = ";" },
-        .{ .type = .rbrace, .literal = "}" },
-        .{ .type = .int, .literal = "10" },
-        .{ .type = .e, .literal = "==" },
-        .{ .type = .int, .literal = "10" },
-        .{ .type = .semicolon, .literal = ";" },
-        .{ .type = .int, .literal = "10" },
-        .{ .type = .ne, .literal = "!=" },
-        .{ .type = .int, .literal = "9" },
-        .{ .type = .semicolon, .literal = ";" },
-        .{ .type = .eof, .literal = "" },
+        .{ .type = .LET, .payload = .{ .literal = "let" } },
+        .{ .type = .ident, .payload = .{ .literal = "five" } },
+        .{ .type = .equ, .payload = .{ .literal = "=" } },
+        .{ .type = .int, .payload = .{ .literal = "5" } },
+        .{ .type = .semicolon, .payload = .{ .literal = ";" } },
+        .{ .type = .LET, .payload = .{ .literal = "let" } },
+        .{ .type = .ident, .payload = .{ .literal = "ten" } },
+        .{ .type = .equ, .payload = .{ .literal = "=" } },
+        .{ .type = .int, .payload = .{ .literal = "10" } },
+        .{ .type = .semicolon, .payload = .{ .literal = ";" } },
+        .{ .type = .LET, .payload = .{ .literal = "let" } },
+        .{ .type = .ident, .payload = .{ .literal = "add" } },
+        .{ .type = .equ, .payload = .{ .literal = "=" } },
+        .{ .type = .FUNC, .payload = .{ .literal = "fn" } },
+        .{ .type = .lparen, .payload = .{ .literal = "(" } },
+        .{ .type = .ident, .payload = .{ .literal = "x" } },
+        .{ .type = .comma, .payload = .{ .literal = "," } },
+        .{ .type = .ident, .payload = .{ .literal = "y" } },
+        .{ .type = .rparen, .payload = .{ .literal = ")" } },
+        .{ .type = .lbrace, .payload = .{ .literal = "{" } },
+        .{ .type = .ident, .payload = .{ .literal = "x" } },
+        .{ .type = .plus, .payload = .{ .literal = "+" } },
+        .{ .type = .ident, .payload = .{ .literal = "y" } },
+        .{ .type = .semicolon, .payload = .{ .literal = ";" } },
+        .{ .type = .rbrace, .payload = .{ .literal = "}" } },
+        .{ .type = .semicolon, .payload = .{ .literal = ";" } },
+        .{ .type = .LET, .payload = .{ .literal = "let" } },
+        .{ .type = .ident, .payload = .{ .literal = "result" } },
+        .{ .type = .equ, .payload = .{ .literal = "=" } },
+        .{ .type = .ident, .payload = .{ .literal = "add" } },
+        .{ .type = .lparen, .payload = .{ .literal = "(" } },
+        .{ .type = .ident, .payload = .{ .literal = "five" } },
+        .{ .type = .comma, .payload = .{ .literal = "," } },
+        .{ .type = .ident, .payload = .{ .literal = "ten" } },
+        .{ .type = .rparen, .payload = .{ .literal = ")" } },
+        .{ .type = .semicolon, .payload = .{ .literal = ";" } },
+        .{ .type = .not, .payload = .{ .literal = "!" } },
+        .{ .type = .dash, .payload = .{ .literal = "-" } },
+        .{ .type = .slash, .payload = .{ .literal = "/" } },
+        .{ .type = .star, .payload = .{ .literal = "*" } },
+        .{ .type = .int, .payload = .{ .literal = "5" } },
+        .{ .type = .semicolon, .payload = .{ .literal = ";" } },
+        .{ .type = .int, .payload = .{ .literal = "5" } },
+        .{ .type = .lt, .payload = .{ .literal = "<" } },
+        .{ .type = .int, .payload = .{ .literal = "10" } },
+        .{ .type = .gt, .payload = .{ .literal = ">" } },
+        .{ .type = .int, .payload = .{ .literal = "5" } },
+        .{ .type = .semicolon, .payload = .{ .literal = ";" } },
+        .{ .type = .IF, .payload = .{ .literal = "if" } },
+        .{ .type = .lparen, .payload = .{ .literal = "(" } },
+        .{ .type = .int, .payload = .{ .literal = "5" } },
+        .{ .type = .lt, .payload = .{ .literal = "<" } },
+        .{ .type = .int, .payload = .{ .literal = "10" } },
+        .{ .type = .rparen, .payload = .{ .literal = ")" } },
+        .{ .type = .lbrace, .payload = .{ .literal = "{" } },
+        .{ .type = .RETURN, .payload = .{ .literal = "return" } },
+        .{ .type = .TRUE, .payload = .{ .literal = "true" } },
+        .{ .type = .semicolon, .payload = .{ .literal = ";" } },
+        .{ .type = .rbrace, .payload = .{ .literal = "}" } },
+        .{ .type = .ELSE, .payload = .{ .literal = "else" } },
+        .{ .type = .lbrace, .payload = .{ .literal = "{" } },
+        .{ .type = .RETURN, .payload = .{ .literal = "return" } },
+        .{ .type = .FALSE, .payload = .{ .literal = "false" } },
+        .{ .type = .semicolon, .payload = .{ .literal = ";" } },
+        .{ .type = .rbrace, .payload = .{ .literal = "}" } },
+        .{ .type = .int, .payload = .{ .literal = "10" } },
+        .{ .type = .e, .payload = .{ .literal = "==" } },
+        .{ .type = .int, .payload = .{ .literal = "10" } },
+        .{ .type = .semicolon, .payload = .{ .literal = ";" } },
+        .{ .type = .int, .payload = .{ .literal = "10" } },
+        .{ .type = .ne, .payload = .{ .literal = "!=" } },
+        .{ .type = .int, .payload = .{ .literal = "9" } },
+        .{ .type = .semicolon, .payload = .{ .literal = ";" } },
+        .{ .type = .eof, .payload = .{ .literal = "" } },
     };
 
-    var l = Self.init(input, std.testing.allocator);
+    var l = Self.init(input);
 
     for (test_tokens) |tt| {
         const tok = l.nextToken();
