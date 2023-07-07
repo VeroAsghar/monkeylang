@@ -55,13 +55,13 @@ pub fn init(input: []const u8) Lexer {
     return l;
 }
 
-pub fn nextToken(self: *Lexer) Token {
-    self.skipWhitespace();
+pub fn nextToken(l: *Lexer) Token {
+    l.skipWhitespace();
 
-    const tok: Token = switch (self.ch) {
+    const tok: Token = switch (l.ch) {
         '=' => blk: {
-            if (self.peekChar() == '=') {
-                self.readChar();
+            if (l.peekChar() == '=') {
+                l.readChar();
                 break :blk .{ .type = .e, .payload = .{ .literal = "==" } };
             } else {
                 break :blk .{ .type = .equ, .payload = .{ .literal = "=" } };
@@ -78,8 +78,8 @@ pub fn nextToken(self: *Lexer) Token {
         '/' => .{ .type = .slash, .payload = .{ .literal = "/" } },
         '*' => .{ .type = .star, .payload = .{ .literal = "*" } },
         '!' => blk: {
-            if (self.peekChar() == '=') {
-                self.readChar();
+            if (l.peekChar() == '=') {
+                l.readChar();
                 break :blk .{ .type = .ne, .payload = .{ .literal = "!=" } };
             } else {
                 break :blk .{ .type = .not, .payload = .{ .literal = "!" } };
@@ -89,44 +89,44 @@ pub fn nextToken(self: *Lexer) Token {
         '>' => .{ .type = .gt, .payload = .{ .literal = ">" } },
         0 => .{ .type = .eof, .payload = .{ .literal = "" } },
         else => {
-            if (isLetter(self.ch)) {
-                const literal = self.readIdentifier();
+            if (isLetter(l.ch)) {
+                const literal = l.readIdentifier();
                 return lookupIdent(literal);
-            } else if (isDigit(self.ch)) {
-                const number = self.readNumber();
+            } else if (isDigit(l.ch)) {
+                const number = l.readNumber();
                 return .{ .type = .int, .payload = .{ .literal = number } };
             } else {
-                return .{ .type = .illegal, .payload = .{ .illegal = self.ch } };
+                return .{ .type = .illegal, .payload = .{ .illegal = l.ch } };
             }
         },
     };
 
-    self.readChar();
+    l.readChar();
     return tok;
 }
 
-fn peekChar(self: *Lexer) u8 {
-    if (self.read_position >= self.input.len) {
+fn peekChar(l: *Lexer) u8 {
+    if (l.read_position >= l.input.len) {
         return 0;
     } else {
-        return self.input[self.read_position];
+        return l.input[l.read_position];
     }
 }
 
-fn readNumber(self: *Lexer) []const u8 {
-    var position = self.position;
-    while (isDigit(self.ch)) {
-        self.readChar();
+fn readNumber(l: *Lexer) []const u8 {
+    var position = l.position;
+    while (isDigit(l.ch)) {
+        l.readChar();
     }
-    return self.input[position..self.position];
+    return l.input[position..l.position];
 }
 
-fn readIdentifier(self: *Lexer) []const u8 {
-    var position = self.position;
-    while (isLetter(self.ch)) {
-        self.readChar();
+fn readIdentifier(l: *Lexer) []const u8 {
+    var position = l.position;
+    while (isLetter(l.ch)) {
+        l.readChar();
     }
-    return self.input[position..self.position];
+    return l.input[position..l.position];
 }
 
 fn lookupIdent(ident: []const u8) Token {
@@ -149,9 +149,9 @@ fn lookupIdent(ident: []const u8) Token {
     }
 }
 
-fn skipWhitespace(self: *Lexer) void {
-    while (self.ch == ' ' or self.ch == '\t' or self.ch == '\n' or self.ch == '\r') {
-        self.readChar();
+fn skipWhitespace(l: *Lexer) void {
+    while (l.ch == ' ' or l.ch == '\t' or l.ch == '\n' or l.ch == '\r') {
+        l.readChar();
     }
 }
 
@@ -162,14 +162,14 @@ fn isDigit(ch: u8) bool {
     return '0' <= ch and ch <= '9';
 }
 
-fn readChar(self: *Lexer) void {
-    if (self.read_position >= self.input.len) {
-        self.ch = 0;
+fn readChar(l: *Lexer) void {
+    if (l.read_position >= l.input.len) {
+        l.ch = 0;
     } else {
-        self.ch = self.input[self.read_position];
+        l.ch = l.input[l.read_position];
     }
-    self.position = self.read_position;
-    self.read_position += 1;
+    l.position = l.read_position;
+    l.read_position += 1;
 }
 
 test "sample program" {
