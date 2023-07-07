@@ -40,22 +40,22 @@ pub const TokenType = enum {
     gt,
 };
 
-const Self = @This();
+const Lexer = @This();
 
 input: []const u8,
 position: u32 = 0,
 read_position: u32 = 0,
 ch: u8 = undefined,
 
-pub fn init(input: []const u8) Self {
-    var l = Self{
+pub fn init(input: []const u8) Lexer {
+    var l = Lexer{
         .input = input,
     };
     readChar(&l);
     return l;
 }
 
-pub fn nextToken(self: *Self) Token {
+pub fn nextToken(self: *Lexer) Token {
     self.skipWhitespace();
 
     const tok: Token = switch (self.ch) {
@@ -105,7 +105,7 @@ pub fn nextToken(self: *Self) Token {
     return tok;
 }
 
-fn peekChar(self: *Self) u8 {
+fn peekChar(self: *Lexer) u8 {
     if (self.read_position >= self.input.len) {
         return 0;
     } else {
@@ -113,7 +113,7 @@ fn peekChar(self: *Self) u8 {
     }
 }
 
-fn readNumber(self: *Self) []const u8 {
+fn readNumber(self: *Lexer) []const u8 {
     var position = self.position;
     while (isDigit(self.ch)) {
         self.readChar();
@@ -121,7 +121,7 @@ fn readNumber(self: *Self) []const u8 {
     return self.input[position..self.position];
 }
 
-fn readIdentifier(self: *Self) []const u8 {
+fn readIdentifier(self: *Lexer) []const u8 {
     var position = self.position;
     while (isLetter(self.ch)) {
         self.readChar();
@@ -149,7 +149,7 @@ fn lookupIdent(ident: []const u8) Token {
     }
 }
 
-fn skipWhitespace(self: *Self) void {
+fn skipWhitespace(self: *Lexer) void {
     while (self.ch == ' ' or self.ch == '\t' or self.ch == '\n' or self.ch == '\r') {
         self.readChar();
     }
@@ -162,7 +162,7 @@ fn isDigit(ch: u8) bool {
     return '0' <= ch and ch <= '9';
 }
 
-fn readChar(self: *Self) void {
+fn readChar(self: *Lexer) void {
     if (self.read_position >= self.input.len) {
         self.ch = 0;
     } else {
@@ -268,7 +268,7 @@ test "sample program" {
         .{ .type = .eof, .payload = .{ .literal = "" } },
     };
 
-    var l = Self.init(input);
+    var l = Lexer.init(input);
 
     for (test_tokens) |tt| {
         const tok = l.nextToken();

@@ -7,9 +7,9 @@ const Allocator = std.mem.Allocator;
 const std = @import("std");
 const ArrayList = @import("std").ArrayList;
 
-const Self = @This();
-const PrefixParseFnType = *const fn (*Self) ParseError!?ast.Expression;
-const InfixParseFnType = *const fn (*Self, ast.Expression) ParseError!?ast.Expression;
+const Parser = @This();
+const PrefixParseFnType = *const fn (*Parser) ParseError!?ast.Expression;
+const InfixParseFnType = *const fn (*Parser, ast.Expression) ParseError!?ast.Expression;
 
 alloc: Allocator,
 lexer: *Lexer,
@@ -30,27 +30,27 @@ const Precedence = enum(u8) {
     call,
 };
 
-fn registerPrecedence(p: *Self, token_type: TokenType, prec: Precedence) !void {
+fn registerPrecedence(p: *Parser, token_type: TokenType, prec: Precedence) !void {
     try p.precedences.put(token_type, prec);
 }
 
-pub fn deinit(p: *Self) void {
+pub fn deinit(p: *Parser) void {
     p.prefixParseFns.deinit();
     p.infixParseFns.deinit();
 }
 
-fn registerPrefix(p: *Self, token_type: TokenType, prefixParseFn: PrefixParseFnType) !void {
+fn registerPrefix(p: *Parser, token_type: TokenType, prefixParseFn: PrefixParseFnType) !void {
     try p.prefixParseFns.put(token_type, prefixParseFn);
 }
-fn registerInfix(p: *Self, token_type: TokenType, infixParseFn: InfixParseFnType) !void {
+fn registerInfix(p: *Parser, token_type: TokenType, infixParseFn: InfixParseFnType) !void {
     try p.infixParseFns.put(token_type, infixParseFn);
 }
 
-pub fn init(alloc: Allocator, l: *Lexer) !Self {
+pub fn init(alloc: Allocator, l: *Lexer) !Parser {
     var prefixParseFns = std.AutoHashMap(TokenType, PrefixParseFnType).init(alloc);
     var infixParseFns = std.AutoHashMap(TokenType, InfixParseFnType).init(alloc);
     var precedences = std.AutoHashMap(TokenType, Precedence).init(alloc);
-    var p = Self{ .alloc = alloc, .lexer = l, .prefixParseFns = prefixParseFns, .infixParseFns = infixParseFns, .precedences = precedences };
+    var p = Parser{ .alloc = alloc, .lexer = l, .prefixParseFns = prefixParseFns, .infixParseFns = infixParseFns, .precedences = precedences };
 
     try p.registerPrefix(TokenType.ident, parseIdentifier);
     try p.registerPrefix(TokenType.int, parseIntegerLiteral);
@@ -87,28 +87,28 @@ pub fn init(alloc: Allocator, l: *Lexer) !Self {
     return p;
 }
 
-fn nextToken(p: *Self) void {
+fn nextToken(p: *Parser) void {
     p.curToken = p.peekToken;
     p.peekToken = p.lexer.nextToken();
 }
 
-fn parseStatement(p: *Self) !*ast.Statement {
+fn parseStatement(p: *Parser) !*ast.Statement {
     return switch (p.curToken.type) {
         .LET => blk: {
-            var let_stmt = try p.parseLetStatement();
-            var stmt = try p.alloc.create(ast.Statement);
+            const let_stmt = try p.parseLetStatement();
+            const stmt = try p.alloc.create(ast.Statement);
             stmt.* = .{ .Let = let_stmt };
             break :blk stmt;
         },
         .RETURN => blk: {
-            var return_stmt = try p.parseReturnStatement();
-            var stmt = try p.alloc.create(ast.Statement);
+            const return_stmt = try p.parseReturnStatement();
+            const stmt = try p.alloc.create(ast.Statement);
             stmt.* = .{ .Return = return_stmt };
             break :blk stmt;
         },
         else => blk: {
-            var expr_stmt = try p.parseExpressionStatement();
-            var stmt = try p.alloc.create(ast.Statement);
+            const expr_stmt = try p.parseExpressionStatement();
+            const stmt = try p.alloc.create(ast.Statement);
             stmt.* = .{ .Expression = expr_stmt };
             break :blk stmt;
         },
@@ -121,7 +121,7 @@ const ParseError = error{
     MissingToken,
 };
 
-fn parseLetStatement(p: *Self) !ast.LetStatement {
+fn parseLetStatement(p: *Parser) !ast.LetStatement {
     var statement = ast.LetStatement{ .token = p.curToken };
 
     if (!p.expectPeek(TokenType.ident)) {
@@ -144,7 +144,7 @@ fn parseLetStatement(p: *Self) !ast.LetStatement {
     return statement;
 }
 
-fn parseReturnStatement(p: *Self) !ast.ReturnStatement {
+fn parseReturnStatement(p: *Parser) !ast.ReturnStatement {
     var statement = ast.ReturnStatement{ .token = p.curToken };
 
     p.nextToken();
@@ -157,7 +157,7 @@ fn parseReturnStatement(p: *Self) !ast.ReturnStatement {
     return statement;
 }
 
-fn parseExpressionStatement(p: *Self) !ast.ExpressionStatement {
+fn parseExpressionStatement(p: *Parser) !ast.ExpressionStatement {
     var statement = ast.ExpressionStatement{ .token = p.curToken };
     statement.value = (try p.parseExpression(Precedence.low)).?;
 
@@ -168,7 +168,7 @@ fn parseExpressionStatement(p: *Self) !ast.ExpressionStatement {
     return statement;
 }
 
-fn parseExpression(p: *Self, prec: Precedence) !?ast.Expression {
+fn parseExpression(p: *Parser, prec: Precedence) !?ast.Expression {
     var leftExpr: ?ast.Expression = null;
     if (p.prefixParseFns.get(p.curToken.type)) |prefixFn| {
         if (try prefixFn(p)) |expr| {
@@ -186,15 +186,15 @@ fn parseExpression(p: *Self, prec: Precedence) !?ast.Expression {
     return leftExpr;
 }
 
-fn curTokenIs(p: *Self, tok: TokenType) bool {
+fn curTokenIs(p: *Parser, tok: TokenType) bool {
     return p.curToken.type == tok;
 }
 
-fn peekTokenIs(p: *Self, tok: TokenType) bool {
+fn peekTokenIs(p: *Parser, tok: TokenType) bool {
     return p.peekToken.type == tok;
 }
 
-fn expectPeek(p: *Self, tok: TokenType) bool {
+fn expectPeek(p: *Parser, tok: TokenType) bool {
     if (p.peekTokenIs(tok)) {
         p.nextToken();
         return true;
@@ -203,42 +203,42 @@ fn expectPeek(p: *Self, tok: TokenType) bool {
     }
 }
 
-pub fn parseProgram(p: *Self, alloc: Allocator) !ast.Program {
+pub fn parseProgram(p: *Parser, alloc: Allocator) !ast.Program {
     var program = ast.Program.init(alloc);
 
     while (!p.curTokenIs(TokenType.eof)) : (p.nextToken()) {
-        var statement = try p.parseStatement();
+        const statement = try p.parseStatement();
         try program.statements.append(statement);
     }
 
     return program;
 }
 
-fn parseIdentifier(p: *Self) !?ast.Expression {
-    var ident = try p.alloc.create(ast.Identifier);
+fn parseIdentifier(p: *Parser) !?ast.Expression {
+    const ident = try p.alloc.create(ast.Identifier);
     ident.* = .{ .token = p.curToken };
-    var expr = ast.Expression{ .Ident = ident };
+    const expr = ast.Expression{ .Ident = ident };
     return expr;
 }
 
-fn parseIntegerLiteral(p: *Self) !?ast.Expression {
-    var num = std.fmt.parseInt(i64, p.curToken.payload.literal, 10) catch return null;
-    var int = try p.alloc.create(ast.IntegerLiteral);
+fn parseIntegerLiteral(p: *Parser) !?ast.Expression {
+    const num = std.fmt.parseInt(i64, p.curToken.payload.literal, 10) catch return null;
+    const int = try p.alloc.create(ast.IntegerLiteral);
     int.* = .{ .token = p.curToken, .value = num };
-    var expr = ast.Expression{ .Int = int };
+    const expr = ast.Expression{ .Int = int };
     return expr;
 }
 
-fn parsePrefixExpression(p: *Self) !?ast.Expression {
-    var pre = try p.alloc.create(ast.Prefix);
+fn parsePrefixExpression(p: *Parser) !?ast.Expression {
+    const pre = try p.alloc.create(ast.Prefix);
     pre.* = .{ .token = p.curToken };
     p.nextToken();
     pre.right = (try p.parseExpression(Precedence.pre)).?;
-    var expr = ast.Expression{ .Pre = pre };
+    const expr = ast.Expression{ .Pre = pre };
     return expr;
 }
 
-fn curPrecedence(p: *Self) Precedence {
+fn curPrecedence(p: *Parser) Precedence {
     if (p.precedences.get(p.curToken.type)) |prec| {
         return prec;
     } else {
@@ -246,7 +246,7 @@ fn curPrecedence(p: *Self) Precedence {
     }
 }
 
-fn peekPrecedence(p: *Self) Precedence {
+fn peekPrecedence(p: *Parser) Precedence {
     if (p.precedences.get(p.peekToken.type)) |prec| {
         return prec;
     } else {
@@ -254,8 +254,8 @@ fn peekPrecedence(p: *Self) Precedence {
     }
 }
 
-fn parseInfixExpression(p: *Self, left: ast.Expression) !?ast.Expression {
-    var in = try p.alloc.create(ast.Infix);
+fn parseInfixExpression(p: *Parser, left: ast.Expression) !?ast.Expression {
+    const in = try p.alloc.create(ast.Infix);
     in.* = .{ .token = p.curToken, .left = left };
 
     const precedence = p.curPrecedence();
@@ -266,11 +266,11 @@ fn parseInfixExpression(p: *Self, left: ast.Expression) !?ast.Expression {
         return ParseError.MissingToken;
     }
 
-    var expr = ast.Expression{ .In = in };
+    const expr = ast.Expression{ .In = in };
     return expr;
 }
 
-fn parseBoolean(p: *Self) !?ast.Expression {
+fn parseBoolean(p: *Parser) !?ast.Expression {
     var value: bool = undefined;
     if (std.mem.eql(u8, p.curToken.payload.literal, "true")) {
         value = true;
@@ -279,22 +279,22 @@ fn parseBoolean(p: *Self) !?ast.Expression {
     } else {
         return null;
     }
-    var boolean = try p.alloc.create(ast.Boolean);
+    const boolean = try p.alloc.create(ast.Boolean);
     boolean.* = .{ .token = p.curToken, .value = value };
-    var expr = ast.Expression{ .Bool = boolean };
+    const expr = ast.Expression{ .Bool = boolean };
     return expr;
 }
 
-fn parseGroupedExpression(p: *Self) !?ast.Expression {
+fn parseGroupedExpression(p: *Parser) !?ast.Expression {
     p.nextToken();
-    var expr = (try p.parseExpression(Precedence.low)).?;
+    const expr = (try p.parseExpression(Precedence.low)).?;
     if (!p.expectPeek(TokenType.rparen)) {
         return null;
     }
     return expr;
 }
 
-fn parseIfExpression(p: *Self) !?ast.Expression {
+fn parseIfExpression(p: *Parser) !?ast.Expression {
     const token = p.curToken;
     if (!p.expectPeek(TokenType.lparen)) {
         return ParseError.IncorrectToken;
@@ -323,29 +323,29 @@ fn parseIfExpression(p: *Self) !?ast.Expression {
         alt = try p.parseBlockStatement();
     }
 
-    var if_expr = try p.alloc.create(ast.If);
+    const if_expr = try p.alloc.create(ast.If);
     if_expr.* = .{ .token = token, .cond = cond, .con = con, .alt = alt };
-    var expr = ast.Expression{ .If = if_expr };
+    const expr = ast.Expression{ .If = if_expr };
     return expr;
 }
 
-fn parseBlockStatement(p: *Self) !ast.BlockStatement {
+fn parseBlockStatement(p: *Parser) !ast.BlockStatement {
     const token = p.curToken;
     var stmts = std.ArrayList(*ast.Statement).init(p.alloc);
 
     p.nextToken();
 
     while (!p.curTokenIs(TokenType.eof) and !p.curTokenIs(TokenType.rbrace)) {
-        var statement = try p.parseStatement();
+        const statement = try p.parseStatement();
         try stmts.append(statement);
         p.nextToken();
     }
 
-    var block = .{ .token = token, .statements = stmts };
+    const block = .{ .token = token, .statements = stmts };
     return block;
 }
 
-fn parseFunctionLiteral(p: *Self) !?ast.Expression {
+fn parseFunctionLiteral(p: *Parser) !?ast.Expression {
     const token = p.curToken;
     if (!p.expectPeek(TokenType.lparen)) {
         return ParseError.IncorrectToken;
@@ -359,13 +359,13 @@ fn parseFunctionLiteral(p: *Self) !?ast.Expression {
 
     const body = try p.parseBlockStatement();
 
-    var func_lit = try p.alloc.create(ast.FunctionLiteral);
+    const func_lit = try p.alloc.create(ast.FunctionLiteral);
     func_lit.* = .{ .token = token, .params = params, .body = body };
-    var expr = ast.Expression{ .Func = func_lit };
+    const expr = ast.Expression{ .Func = func_lit };
     return expr;
 }
 
-fn parseFunctionParameters(p: *Self) !std.ArrayList(*ast.Identifier) {
+fn parseFunctionParameters(p: *Parser) !std.ArrayList(*ast.Identifier) {
     var params = std.ArrayList(*ast.Identifier).init(p.alloc);
 
     if (p.peekTokenIs(TokenType.rparen)) {
@@ -398,17 +398,17 @@ fn parseFunctionParameters(p: *Self) !std.ArrayList(*ast.Identifier) {
     return params;
 }
 
-fn parseCallExpression(p: *Self, func: ast.Expression) !?ast.Expression {
+fn parseCallExpression(p: *Parser, func: ast.Expression) !?ast.Expression {
     const token = p.curToken;
     const args = try p.parseCallArguments();
 
-    var call_expr = try p.alloc.create(ast.CallExpression);
+    const call_expr = try p.alloc.create(ast.CallExpression);
     call_expr.* = .{ .token = token, .func = func, .args = args };
-    var expr = ast.Expression{ .Call = call_expr };
+    const expr = ast.Expression{ .Call = call_expr };
     return expr;
 }
 
-fn parseCallArguments(p: *Self) !std.ArrayList(ast.Expression) {
+fn parseCallArguments(p: *Parser) !std.ArrayList(ast.Expression) {
     var args = std.ArrayList(ast.Expression).init(p.alloc);
 
     if (p.peekTokenIs(TokenType.rparen)) {
@@ -456,7 +456,7 @@ test "let statements" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -483,7 +483,7 @@ test "return statements" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -511,7 +511,7 @@ test "identifier expressions" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -539,7 +539,7 @@ test "integer literals" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -566,7 +566,7 @@ test "prefix expressions" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -594,7 +594,7 @@ test "grouped expressions" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -628,7 +628,7 @@ test "infix expressions" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -662,7 +662,7 @@ test "boolean literals" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -691,7 +691,7 @@ test "if expressions" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -722,7 +722,7 @@ test "if/else expressions" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -751,7 +751,7 @@ test "function literals" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -777,7 +777,7 @@ test "function parameters" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -803,7 +803,7 @@ test "call expressions" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -827,7 +827,7 @@ test "bad expressions" {
     const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Self.init(allocator, &l);
+    var p = try Parser.init(allocator, &l);
 
     var program = p.parseProgram(std.testing.allocator) catch |err| {
         try expect(err == ParseError.MissingToken);
