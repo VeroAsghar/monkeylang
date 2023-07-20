@@ -18,7 +18,6 @@ peekToken: Lexer.Token = undefined,
 
 prefixParseFns: std.AutoHashMap(TokenType, PrefixParseFnType),
 infixParseFns: std.AutoHashMap(TokenType, InfixParseFnType),
-precedences: std.AutoHashMap(TokenType, Precedence),
 
 const Precedence = enum(u8) {
     low,
@@ -28,10 +27,29 @@ const Precedence = enum(u8) {
     prod,
     pre,
     call,
+
+    fn fromTokenType(tt: TokenType) @This() {
+        return switch (tt) {
+            .e => .equ,
+            .ne => .equ,
+            .lt => .lg,
+            .gt => .lg,
+            .plus => .sum,
+            .dash => .sum,
+            .slash => .prod,
+            .star => .prod,
+            .lparen => .call,
+            else => .low,
+        };
+    }
 };
 
-fn registerPrecedence(p: *Parser, token_type: TokenType, prec: Precedence) !void {
-    try p.precedences.put(token_type, prec);
+fn curPrecedence(p: *Parser) Precedence {
+    return Precedence.fromTokenType(p.curToken.type);
+}
+
+fn peekPrecedence(p: *Parser) Precedence {
+    return Precedence.fromTokenType(p.peekToken.type);
 }
 
 pub fn deinit(p: *Parser) void {
@@ -49,8 +67,12 @@ fn registerInfix(p: *Parser, token_type: TokenType, infixParseFn: InfixParseFnTy
 pub fn init(alloc: Allocator, l: *Lexer) !Parser {
     var prefixParseFns = std.AutoHashMap(TokenType, PrefixParseFnType).init(alloc);
     var infixParseFns = std.AutoHashMap(TokenType, InfixParseFnType).init(alloc);
-    var precedences = std.AutoHashMap(TokenType, Precedence).init(alloc);
-    var p = Parser{ .alloc = alloc, .lexer = l, .prefixParseFns = prefixParseFns, .infixParseFns = infixParseFns, .precedences = precedences };
+    var p = Parser{
+        .alloc = alloc,
+        .lexer = l,
+        .prefixParseFns = prefixParseFns,
+        .infixParseFns = infixParseFns,
+    };
 
     try p.registerPrefix(TokenType.ident, parseIdentifier);
     try p.registerPrefix(TokenType.int, parseIntegerLiteral);
@@ -72,16 +94,6 @@ pub fn init(alloc: Allocator, l: *Lexer) !Parser {
     try p.registerInfix(TokenType.ne, parseInfixExpression);
     try p.registerInfix(TokenType.lparen, parseCallExpression);
 
-    try p.registerPrecedence(TokenType.e, Precedence.equ);
-    try p.registerPrecedence(TokenType.ne, Precedence.equ);
-    try p.registerPrecedence(TokenType.lt, Precedence.lg);
-    try p.registerPrecedence(TokenType.gt, Precedence.lg);
-    try p.registerPrecedence(TokenType.plus, Precedence.sum);
-    try p.registerPrecedence(TokenType.dash, Precedence.sum);
-    try p.registerPrecedence(TokenType.slash, Precedence.prod);
-    try p.registerPrecedence(TokenType.star, Precedence.prod);
-    try p.registerPrecedence(TokenType.lparen, Precedence.call);
-
     p.nextToken();
     p.nextToken();
     return p;
@@ -90,6 +102,34 @@ pub fn init(alloc: Allocator, l: *Lexer) !Parser {
 fn nextToken(p: *Parser) void {
     p.curToken = p.peekToken;
     p.peekToken = p.lexer.nextToken();
+}
+
+fn curTokenIs(p: *Parser, tok: TokenType) bool {
+    return p.curToken.type == tok;
+}
+
+fn peekTokenIs(p: *Parser, tok: TokenType) bool {
+    return p.peekToken.type == tok;
+}
+
+fn expectPeek(p: *Parser, tok: TokenType) bool {
+    if (p.peekTokenIs(tok)) {
+        p.nextToken();
+        return true;
+    } else {
+        return false;
+    }
+}
+
+pub fn parseProgram(p: *Parser, alloc: Allocator) !ast.Program {
+    var program = ast.Program.init(alloc);
+
+    while (!p.curTokenIs(TokenType.eof)) : (p.nextToken()) {
+        const statement = try p.parseStatement();
+        try program.statements.append(statement);
+    }
+
+    return program;
 }
 
 fn parseStatement(p: *Parser) !*ast.Statement {
@@ -116,10 +156,9 @@ fn parseStatement(p: *Parser) !*ast.Statement {
 }
 
 const ParseError = error{
-    OutOfMemory,
     IncorrectToken,
     MissingToken,
-};
+} || std.mem.Allocator.Error;
 
 fn parseLetStatement(p: *Parser) !ast.LetStatement {
     var statement = ast.LetStatement{ .token = p.curToken };
@@ -186,34 +225,6 @@ fn parseExpression(p: *Parser, prec: Precedence) !?ast.Expression {
     return leftExpr;
 }
 
-fn curTokenIs(p: *Parser, tok: TokenType) bool {
-    return p.curToken.type == tok;
-}
-
-fn peekTokenIs(p: *Parser, tok: TokenType) bool {
-    return p.peekToken.type == tok;
-}
-
-fn expectPeek(p: *Parser, tok: TokenType) bool {
-    if (p.peekTokenIs(tok)) {
-        p.nextToken();
-        return true;
-    } else {
-        return false;
-    }
-}
-
-pub fn parseProgram(p: *Parser, alloc: Allocator) !ast.Program {
-    var program = ast.Program.init(alloc);
-
-    while (!p.curTokenIs(TokenType.eof)) : (p.nextToken()) {
-        const statement = try p.parseStatement();
-        try program.statements.append(statement);
-    }
-
-    return program;
-}
-
 fn parseIdentifier(p: *Parser) !?ast.Expression {
     const ident = try p.alloc.create(ast.Identifier);
     ident.* = .{ .token = p.curToken };
@@ -236,22 +247,6 @@ fn parsePrefixExpression(p: *Parser) !?ast.Expression {
     pre.right = (try p.parseExpression(Precedence.pre)).?;
     const expr = ast.Expression{ .Pre = pre };
     return expr;
-}
-
-fn curPrecedence(p: *Parser) Precedence {
-    if (p.precedences.get(p.curToken.type)) |prec| {
-        return prec;
-    } else {
-        return Precedence.low;
-    }
-}
-
-fn peekPrecedence(p: *Parser) Precedence {
-    if (p.precedences.get(p.peekToken.type)) |prec| {
-        return prec;
-    } else {
-        return Precedence.low;
-    }
 }
 
 fn parseInfixExpression(p: *Parser, left: ast.Expression) !?ast.Expression {
