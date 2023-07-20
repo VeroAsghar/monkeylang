@@ -16,8 +16,38 @@ lexer: *Lexer,
 curToken: Lexer.Token = undefined,
 peekToken: Lexer.Token = undefined,
 
-prefixParseFns: std.AutoHashMap(TokenType, PrefixParseFnType),
-infixParseFns: std.AutoHashMap(TokenType, InfixParseFnType),
+pub fn init(alloc: *ArenaAllocator, l: *Lexer) !Parser {
+    var p = Parser{
+        .alloc = alloc.allocator(),
+        .lexer = l,
+    };
+
+    p.nextToken();
+    p.nextToken();
+    return p;
+}
+
+fn nextToken(p: *Parser) void {
+    p.curToken = p.peekToken;
+    p.peekToken = p.lexer.nextToken();
+}
+
+fn curTokenIs(p: *Parser, tok: TokenType) bool {
+    return p.curToken.type == tok;
+}
+
+fn peekTokenIs(p: *Parser, tok: TokenType) bool {
+    return p.peekToken.type == tok;
+}
+
+fn expectPeek(p: *Parser, tok: TokenType) bool {
+    if (p.peekTokenIs(tok)) {
+        p.nextToken();
+        return true;
+    } else {
+        return false;
+    }
+}
 
 const Precedence = enum(u8) {
     low,
@@ -52,73 +82,34 @@ fn peekPrecedence(p: *Parser) Precedence {
     return Precedence.fromTokenType(p.peekToken.type);
 }
 
-pub fn deinit(p: *Parser) void {
-    p.prefixParseFns.deinit();
-    p.infixParseFns.deinit();
-}
-
-fn registerPrefix(p: *Parser, token_type: TokenType, prefixParseFn: PrefixParseFnType) !void {
-    try p.prefixParseFns.put(token_type, prefixParseFn);
-}
-fn registerInfix(p: *Parser, token_type: TokenType, infixParseFn: InfixParseFnType) !void {
-    try p.infixParseFns.put(token_type, infixParseFn);
-}
-
-pub fn init(alloc: Allocator, l: *Lexer) !Parser {
-    var prefixParseFns = std.AutoHashMap(TokenType, PrefixParseFnType).init(alloc);
-    var infixParseFns = std.AutoHashMap(TokenType, InfixParseFnType).init(alloc);
-    var p = Parser{
-        .alloc = alloc,
-        .lexer = l,
-        .prefixParseFns = prefixParseFns,
-        .infixParseFns = infixParseFns,
+fn prefixParseFn(tt: TokenType) ?PrefixParseFnType {
+    return switch (tt) {
+        .ident => parseIdentifier,
+        .int => parseIntegerLiteral,
+        .not => parsePrefixExpression,
+        .dash => parsePrefixExpression,
+        .TRUE => parseBoolean,
+        .FALSE => parseBoolean,
+        .lparen => parseGroupedExpression,
+        .IF => parseIfExpression,
+        .FUNC => parseFunctionLiteral,
+        else => null,
     };
-
-    try p.registerPrefix(TokenType.ident, parseIdentifier);
-    try p.registerPrefix(TokenType.int, parseIntegerLiteral);
-    try p.registerPrefix(TokenType.not, parsePrefixExpression);
-    try p.registerPrefix(TokenType.dash, parsePrefixExpression);
-    try p.registerPrefix(TokenType.TRUE, parseBoolean);
-    try p.registerPrefix(TokenType.FALSE, parseBoolean);
-    try p.registerPrefix(TokenType.lparen, parseGroupedExpression);
-    try p.registerPrefix(TokenType.IF, parseIfExpression);
-    try p.registerPrefix(TokenType.FUNC, parseFunctionLiteral);
-
-    try p.registerInfix(TokenType.star, parseInfixExpression);
-    try p.registerInfix(TokenType.slash, parseInfixExpression);
-    try p.registerInfix(TokenType.plus, parseInfixExpression);
-    try p.registerInfix(TokenType.dash, parseInfixExpression);
-    try p.registerInfix(TokenType.lt, parseInfixExpression);
-    try p.registerInfix(TokenType.gt, parseInfixExpression);
-    try p.registerInfix(TokenType.e, parseInfixExpression);
-    try p.registerInfix(TokenType.ne, parseInfixExpression);
-    try p.registerInfix(TokenType.lparen, parseCallExpression);
-
-    p.nextToken();
-    p.nextToken();
-    return p;
 }
 
-fn nextToken(p: *Parser) void {
-    p.curToken = p.peekToken;
-    p.peekToken = p.lexer.nextToken();
-}
-
-fn curTokenIs(p: *Parser, tok: TokenType) bool {
-    return p.curToken.type == tok;
-}
-
-fn peekTokenIs(p: *Parser, tok: TokenType) bool {
-    return p.peekToken.type == tok;
-}
-
-fn expectPeek(p: *Parser, tok: TokenType) bool {
-    if (p.peekTokenIs(tok)) {
-        p.nextToken();
-        return true;
-    } else {
-        return false;
-    }
+fn infixParseFn(tt: TokenType) ?InfixParseFnType {
+    return switch (tt) {
+        .star => parseInfixExpression,
+        .slash => parseInfixExpression,
+        .plus => parseInfixExpression,
+        .dash => parseInfixExpression,
+        .lt => parseInfixExpression,
+        .gt => parseInfixExpression,
+        .e => parseInfixExpression,
+        .ne => parseInfixExpression,
+        .lparen => parseCallExpression,
+        else => null,
+    };
 }
 
 pub fn parseProgram(p: *Parser, alloc: Allocator) !ast.Program {
@@ -209,13 +200,13 @@ fn parseExpressionStatement(p: *Parser) !ast.ExpressionStatement {
 
 fn parseExpression(p: *Parser, prec: Precedence) !?ast.Expression {
     var leftExpr: ?ast.Expression = null;
-    if (p.prefixParseFns.get(p.curToken.type)) |prefixFn| {
+    if (prefixParseFn(p.curToken.type)) |prefixFn| {
         if (try prefixFn(p)) |expr| {
             leftExpr = expr;
         }
     }
     while (!p.peekTokenIs(TokenType.semicolon) and @intFromEnum(prec) < @intFromEnum(p.peekPrecedence())) {
-        if (p.infixParseFns.get(p.peekToken.type)) |infixFn| {
+        if (infixParseFn(p.peekToken.type)) |infixFn| {
             p.nextToken();
             if (try infixFn(p, leftExpr.?)) |expr| {
                 leftExpr = expr;
@@ -448,10 +439,9 @@ test "let statements" {
     ;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -475,10 +465,9 @@ test "return statements" {
     ;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -503,10 +492,9 @@ test "identifier expressions" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -531,10 +519,9 @@ test "integer literals" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -558,10 +545,9 @@ test "prefix expressions" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -586,10 +572,9 @@ test "grouped expressions" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -620,10 +605,9 @@ test "infix expressions" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -654,10 +638,9 @@ test "boolean literals" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -683,10 +666,9 @@ test "if expressions" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -714,10 +696,9 @@ test "if/else expressions" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -743,10 +724,9 @@ test "function literals" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -769,10 +749,9 @@ test "function parameters" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -795,10 +774,9 @@ test "call expressions" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = try p.parseProgram(std.testing.allocator);
     defer program.deinit();
@@ -819,10 +797,9 @@ test "bad expressions" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var l = Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
+    var p = try Parser.init(&arena, &l);
 
     var program = p.parseProgram(std.testing.allocator) catch |err| {
         try expect(err == ParseError.MissingToken);
